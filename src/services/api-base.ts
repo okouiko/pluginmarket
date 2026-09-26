@@ -97,6 +97,8 @@ export function isTauri(): boolean { return !!(window as any).__TAURI__ }
 function getBaseUrl(platform: Platform): string {
   const store = useAppStore.getState()
   const corsProxy = store.corsProxy
+  const useCorsProxy = store.useCorsProxy ?? false
+
   if (isTauri()) {
     switch (platform) {
       case 'spigot': return 'https://api.spiget.org/v2'
@@ -104,13 +106,20 @@ function getBaseUrl(platform: Platform): string {
       case 'modrinth': return 'https://api.modrinth.com/v2'
     }
   }
-  if (import.meta.env.DEV) {
+
+  // 优先走相对路径 /api/xxx：
+  //   DEV → vite proxy 转发
+  //   Vercel PROD → vercel.json rewrite 转发（边缘节点去请求，不受 CORS 限制）
+  //   GitHub Pages / 无 rewrite 的静态托管 → 设置里切换 corsProxy 绕过
+  if (!useCorsProxy) {
     switch (platform) {
       case 'spigot': return '/api/spiget'
       case 'hangar': return '/api/hangar'
       case 'modrinth': return '/api/modrinth'
     }
   }
+
+  // 最后 fallback：浏览器端 corsProxy
   switch (platform) {
     case 'spigot': return `${corsProxy}${encodeURIComponent('https://api.spiget.org/v2')}`
     case 'hangar': return `${corsProxy}${encodeURIComponent('https://hangar.papermc.io/api/v1')}`

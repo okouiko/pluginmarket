@@ -114,9 +114,11 @@ interface AppState {
   setRoleAssignment: (role: AIRole, modelId: string) => void
   getModelForRole: (role: AIRole) => AIModelConfig | undefined
 
-  // CORS 代理
+  // CORS 代理（仅在无 rewrite 的静态托管上启用）
   corsProxy: string
   setCorsProxy: (url: string) => void
+  useCorsProxy: boolean
+  setUseCorsProxy: (v: boolean) => void
 
   // 缓存
   pluginCache: Record<string, { data: PluginBase; timestamp: number }>
@@ -239,6 +241,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCorsProxy: (url) => {
     set({ corsProxy: url })
     saveToStorage('corsProxy', url)
+  },
+  // 默认 false：优先走 /api/xxx（Vercel rewrite / vite proxy）
+  useCorsProxy: loadFromStorage<boolean>('useCorsProxy', false),
+  setUseCorsProxy: (v) => {
+    set({ useCorsProxy: v })
+    saveToStorage('useCorsProxy', v)
   },
 
   pluginCache: loadFromStorage<Record<string, { data: PluginBase; timestamp: number }>>('pluginCache', {}),
