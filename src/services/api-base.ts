@@ -80,9 +80,15 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
 }
 
 // ============ 通用 fetch 封装（带缓存 + 并发去重）============
-async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit): Promise<T> {
+async function apiFetchCore<T>(
+  platform: Platform,
+  path: string,
+  init: RequestInit | undefined,
+  parser: (res: Response) => Promise<T>,
+  cacheKeySuffix = ''
+): Promise<T> {
   const url = buildUrl(platform, path)
-  const key = cacheKey(url)
+  const key = cacheKey(url + cacheKeySuffix)
 
   // 1) 命中内存缓存
   const cached = MEM_CACHE.get(key)
@@ -98,22 +104,16 @@ async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit)
 
   const promise = (async () => {
     try {
-      const res = await fetchWithTimeout(url, {
-        ...init,
-        headers: {
-          Accept: 'application/json',
-          ...init?.headers,
-        },
-      })
+      const res = await fetchWithTimeout(url, init)
 
       if (!res.ok) {
         throw new Error(`API Error [${platform}] ${res.status} ${res.statusText}`)
       }
 
-      const data = await res.json()
+      const data = await parser(res)
       // 3) 写入缓存
       MEM_CACHE.set(key, { data, expiresAt: Date.now() + CACHE_TTL })
-      return data as T
+      return data
     } catch (err) {
       console.error('[apiFetch]', platform, '失败:', (err as any)?.message || err, 'URL:', url.substring(0, 120))
       throw err
@@ -126,10 +126,43 @@ async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit)
   return promise
 }
 
+// JSON 版本（默认）
+async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit): Promise<T> {
+  return apiFetchCore(
+    platform,
+    path,
+    {
+      ...init,
+      headers: {
+        Accept: 'application/json',
+        ...init?.headers,
+      },
+    },
+    (res) => res.json() as Promise<T>
+  )
+}
+
+// 纯文本版本（Hangar pages/main 返回 text/plain）
+async function apiFetchText(platform: Platform, path: string, init?: RequestInit): Promise<string> {
+  return apiFetchCore(
+    platform,
+    path,
+    {
+      ...init,
+      headers: {
+        Accept: 'text/plain',
+        ...init?.headers,
+      },
+    },
+    (res) => res.text(),
+    ':text'
+  )
+}
+
 // 手动清缓存（给刷新按钮用）
 export function clearApiCache() {
   MEM_CACHE.clear()
   INFLIGHT.clear()
 }
 
-export { apiFetch, getBaseUrl }
+export { apiFetch, apiFetchText, getBaseUrl }
