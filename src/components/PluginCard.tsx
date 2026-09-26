@@ -4,10 +4,12 @@ import type { PluginBase } from '@/types'
 import { useAppStore } from '@/store'
 import { formatDownloads, getPlatformName } from '@/services/search'
 import { PlatformIcon } from '@/components/PlatformIcons'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 
 interface Props {
   plugin: PluginBase
+  /** 搜索关键词（高亮用） */
+  highlight?: string
 }
 
 const platformColors: Record<string, string> = {
@@ -22,7 +24,39 @@ const platformBgColors: Record<string, string> = {
   modrinth: 'bg-modrinth/10 dark:bg-modrinth/20',
 }
 
-export default function PluginCard({ plugin }: Props) {
+/** 把文本中匹配关键词的部分用 <mark> 包裹 */
+function HighlightText({ text, query }: { text: string; query?: string }) {
+  const parts = useMemo(() => {
+    if (!query || !text.trim()) return [{ text, hit: false }]
+    // 拆分关键词（支持多空格分隔的关键词）
+    const keys = query.trim().split(/\s+/).filter(Boolean)
+    if (keys.length === 0) return [{ text, hit: false }]
+    // 合并成一个正则
+    const escaped = keys.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+    const regex = new RegExp(`(${escaped})`, 'gi')
+    const segments = text.split(regex)
+    return segments.map(s => ({ text: s, hit: regex.test(s) && keys.some(k => k.toLowerCase() === s.toLowerCase()) }))
+  }, [text, query])
+
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.hit ? (
+          <mark
+            key={i}
+            className="bg-yellow-200 dark:bg-yellow-700/50 text-gray-900 dark:text-yellow-200 rounded px-0.5"
+          >
+            {p.text}
+          </mark>
+        ) : (
+          <span key={i}>{p.text}</span>
+        )
+      )}
+    </>
+  )
+}
+
+export default function PluginCard({ plugin, highlight }: Props) {
   const { isFavorite, addFavorite, removeFavorite } = useAppStore()
   const [menuOpen, setMenuOpen] = useState(false)
   const navigate = useNavigate()
@@ -86,22 +120,26 @@ export default function PluginCard({ plugin }: Props) {
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h3 className="font-minecraft text-sm font-medium text-gray-800 dark:text-dark-text truncate">{plugin.name}</h3>
+            <h3 className="font-minecraft text-sm font-medium text-gray-800 dark:text-dark-text truncate">
+              <HighlightText text={plugin.name} query={highlight} />
+            </h3>
             {plugin.author && (
-              <p className="text-xs text-gray-500 dark:text-dark-text-secondary truncate">by {plugin.author}</p>
+              <p className="text-xs text-gray-500 dark:text-dark-text-secondary truncate">
+                by <HighlightText text={plugin.author} query={highlight} />
+              </p>
             )}
           </div>
         </div>
 
-        {/* Description - 固定高度，超出显示省略号 */}
+        {/* Description */}
         <p className="text-xs text-gray-600 dark:text-dark-text-secondary line-clamp-2 mb-2 flex-shrink-0 h-8 overflow-hidden">
-          {plugin.tag || '\u00A0'}
+          {plugin.tag ? <HighlightText text={plugin.tag} query={highlight} /> : '\u00A0'}
         </p>
 
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Stats - 固定在底部 */}
+        {/* Stats */}
         <div className="flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-secondary">
@@ -115,7 +153,7 @@ export default function PluginCard({ plugin }: Props) {
           </span>
         </div>
 
-        {/* Categories 或 Stars（没有有效 categories 时显示星星） */}
+        {/* Categories / Stars */}
         {plugin.categories && plugin.categories.filter(c => c && c.trim()).length > 0 ? (
           <div className="flex flex-wrap gap-1 mt-2 flex-shrink-0 h-5 overflow-hidden">
             {plugin.categories.filter(c => c && c.trim()).slice(0, 3).map((cat, i) => (

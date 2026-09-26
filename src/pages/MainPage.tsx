@@ -4,6 +4,7 @@ import { Loader2, TrendingUp, Sparkles, ChevronDown, ChevronRight, Filter, Refre
 import SearchBar from '@/components/SearchBar'
 import PlatformToggle from '@/components/PlatformToggle'
 import PluginCard from '@/components/PluginCard'
+import StatsDashboard from '@/components/StatsDashboard'
 import { useAppStore } from '@/store'
 import { searchAll } from '@/services/search'
 import { getSpigetPopularResources } from '@/services/spiget'
@@ -406,6 +407,9 @@ export default function MainPage() {
             isSearchMode ? '' : 'md:w-full'
           }`}
         >
+          {/* 仪表盘（仅非搜索模式） */}
+          {!isSearchMode && <StatsDashboard />}
+
           {/* 标题栏 */}
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -488,6 +492,7 @@ export default function MainPage() {
                           name: displayName,
                           tag: displayTag,
                         }}
+                        highlight={query}
                       />
                     </div>
                   )
