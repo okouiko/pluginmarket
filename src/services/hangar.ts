@@ -1,7 +1,9 @@
-import { apiFetch } from './api-base'
+import { apiFetch, apiFetchText } from './api-base'
 import type { PluginBase, HangarProject, HangarSearchResult } from '@/types'
+import { hangarProjectToCompat } from './versions'
 
 function toPluginBase(p: HangarProject): PluginBase {
+  const { serverTypes, gameVersions } = hangarProjectToCompat(p.supportedPlatforms)
   return {
     id: `hangar-${p.namespace.owner}-${p.namespace.slug}`,
     platformId: `${p.namespace.owner}/${p.namespace.slug}`,
@@ -16,6 +18,8 @@ function toPluginBase(p: HangarProject): PluginBase {
     categories: [p.category, ...(p.settings?.tags || [])],
     lastUpdate: new Date(p.lastUpdated).getTime(),
     sourceUrl: `https://hangar.papermc.io/${p.namespace.owner}/${p.namespace.slug}`,
+    serverTypes,
+    gameVersions,
   }
 }
 
@@ -28,42 +32,38 @@ export async function searchHangar(query: string, page = 0, size = 10): Promise<
 }
 
 export async function getHangarProject(owner: string, slug: string): Promise<PluginBase> {
-  const p = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`)
+  const p = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`, { cacheType: 'detail' })
   return toPluginBase(p)
 }
 
+/**
+ * Hangar API v1 提供了 pages/main 端点返回完整 Markdown 描述（text/plain）。
+ * 使用 GET /api/v1/pages/main/{owner}/{slugOrId} 获取。
+ * 如果 pages/main 失败（项目无主页内容等情况），则回退到项目短描述 + 官网引导链接。
+ */
 export async function getHangarProjectDescription(owner: string, slug: string): Promise<string> {
-  // Hangar 的项目描述在 pages 端点
-  // 尝试多种可能的页面路径
-  const pagePaths = ['', 'main', 'home', 'Home', 'Main']
-  
-  for (const path of pagePaths) {
-    try {
-      const endpoint = path 
-        ? `/projects/${owner}/${slug}/pages/${path}`
-        : `/projects/${owner}/${slug}/pages`
-      const pages = await apiFetch<{ content: string } | { content: string }[]>('hangar', endpoint)
-      
-      // 如果返回数组，取第一个
-      if (Array.isArray(pages)) {
-        if (pages.length > 0 && pages[0].content) {
-          return pages[0].content
-        }
-      } else if (pages.content) {
-        return pages.content
-      }
-    } catch {
-      // 继续尝试下一个路径
-    }
-  }
-  
-  // 如果都失败了，尝试从项目详情获取描述
   try {
-    const project = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`)
-    return project.description || ''
+    // 1) 优先尝试获取完整 Markdown 主页
+    const markdown = await apiFetchText('hangar', `/pages/main/${owner}/${slug}`, { cacheType: 'detail' })
+    if (markdown && markdown.trim().length > 0) {
+      return markdown.trim()
+    }
   } catch {
-    return ''
+    // pages/main 可能对某些项目 404，继续走 fallback
   }
+
+  // 2) Fallback：项目短描述 + 官网引导链接
+  try {
+    const p = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`, { cacheType: 'detail' })
+    const projectUrl = `https://hangar.papermc.io/${owner}/${slug}`
+    const shortDesc = p.description || ''
+    if (shortDesc) {
+      return `${shortDesc}\n\n> [在 Hangar 官网查看完整说明 →](${projectUrl})`
+    }
+  } catch {
+    // 项目详情也失败了
+  }
+  return ''
 }
 
 export async function getHangarPopular(page = 0, size = 10): Promise<PluginBase[]> {

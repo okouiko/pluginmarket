@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import type { PluginBase, Platform, Favorite, AppSettings, AIModelConfig, AIRoleAssignment, AIRole } from '@/types'
+import type { PluginBase, Platform, Favorite, FavoriteFolder, AppSettings, AIModelConfig, AIRoleAssignment, AIRole } from '@/types'
+import type { CacheType, CacheTypeConfig } from '@/services/api-base'
+import { DEFAULT_CACHE_CONFIG } from '@/services/api-base'
 
 const STORAGE_KEY = 'mc-plugin-market'
 
@@ -92,11 +94,16 @@ interface AppState {
   enabledPlatforms: Platform[]
   togglePlatform: (p: Platform) => void
 
-  // 收藏
+  // 收藏 + 文件夹
   favorites: Favorite[]
-  addFavorite: (plugin: PluginBase) => void
+  addFavorite: (plugin: PluginBase, folderId?: string) => void
   removeFavorite: (id: string) => void
   isFavorite: (id: string) => boolean
+  moveFavorite: (id: string, folderId: string | undefined) => void // undefined = 根目录
+  folders: FavoriteFolder[]
+  addFolder: (name: string) => string
+  renameFolder: (id: string, name: string) => void
+  deleteFolder: (id: string) => void // 删除文件夹时其中收藏回到根目录
 
   // AI 设置
   models: AIModelConfig[]
@@ -120,6 +127,13 @@ interface AppState {
   searchHistory: string[]
   addSearchHistory: (query: string) => void
   clearSearchHistory: () => void
+
+  // API 缓存配置
+  cacheEnabled: boolean
+  cacheByType: Record<CacheType, CacheTypeConfig>
+  updateCacheTTL: (type: CacheType, ttl: number) => void
+  toggleCacheType: (type: CacheType) => void
+  resetCacheConfig: () => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -144,8 +158,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   favorites: loadFromStorage<Favorite[]>('favorites', []),
-  addFavorite: (plugin) => {
-    const fav: Favorite = { plugin, addedAt: Date.now() }
+  addFavorite: (plugin, folderId) => {
+    // 已收藏则跳过
+    if (get().favorites.some(f => f.plugin.id === plugin.id)) return
+    const fav: Favorite = { plugin, addedAt: Date.now(), folderId }
     const next = [...get().favorites, fav]
     set({ favorites: next })
     saveToStorage('favorites', next)
@@ -156,6 +172,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveToStorage('favorites', next)
   },
   isFavorite: (id) => get().favorites.some(f => f.plugin.id === id),
+  moveFavorite: (id, folderId) => {
+    const next = get().favorites.map(f =>
+      f.plugin.id === id ? { ...f, folderId } : f
+    )
+    set({ favorites: next })
+    saveToStorage('favorites', next)
+  },
+  folders: loadFromStorage<FavoriteFolder[]>('folders', []),
+  addFolder: (name) => {
+    const id = `folder-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const next = [...get().folders, { id, name, createdAt: Date.now() }]
+    set({ folders: next })
+    saveToStorage('folders', next)
+    return id
+  },
+  renameFolder: (id, name) => {
+    const next = get().folders.map(f => f.id === id ? { ...f, name } : f)
+    set({ folders: next })
+    saveToStorage('folders', next)
+  },
+  deleteFolder: (id) => {
+    // 删除文件夹：文件夹本身移除 + 其中插件回到根目录（folderId = undefined）
+    const nextFolders = get().folders.filter(f => f.id !== id)
+    const nextFavs = get().favorites.map(f =>
+      f.folderId === id ? { ...f, folderId: undefined } : f
+    )
+    set({ folders: nextFolders, favorites: nextFavs })
+    saveToStorage('folders', nextFolders)
+    saveToStorage('favorites', nextFavs)
+  },
 
   models: loadFromStorage<AIModelConfig[]>('models', defaultModels),
   roleAssignments: loadFromStorage<AIRoleAssignment[]>('roleAssignments', defaultRoleAssignments),
@@ -219,5 +265,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearSearchHistory: () => {
     set({ searchHistory: [] })
     saveToStorage('searchHistory', [])
+  },
+
+  cacheEnabled: loadFromStorage<boolean>('cacheEnabled', true),
+  cacheByType: loadFromStorage<Record<CacheType, CacheTypeConfig>>('cacheByType', DEFAULT_CACHE_CONFIG),
+  updateCacheTTL: (type, ttl) => {
+    const current = get().cacheByType
+    const next = { ...current, [type]: { ...current[type], ttl } }
+    set({ cacheByType: next })
+    saveToStorage('cacheByType', next)
+  },
+  toggleCacheType: (type) => {
+    const current = get().cacheByType
+    const next = { ...current, [type]: { ...current[type], enabled: !current[type].enabled } }
+    set({ cacheByType: next })
+    saveToStorage('cacheByType', next)
+  },
+  resetCacheConfig: () => {
+    set({ cacheEnabled: true, cacheByType: DEFAULT_CACHE_CONFIG })
+    saveToStorage('cacheEnabled', true)
+    saveToStorage('cacheByType', DEFAULT_CACHE_CONFIG)
   },
 }))

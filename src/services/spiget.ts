@@ -20,10 +20,13 @@ function toPluginBase(r: SpigetResource): PluginBase {
     icon: spigetIconUrl(r),
     rating: r.rating?.average,
     downloads: r.downloads,
-    categories: [],
+    categories: r.category?.name ? [r.category.name] : [],
     version: r.testedVersions?.[r.testedVersions.length - 1],
     lastUpdate: r.updateDate * 1000,
     sourceUrl: `https://www.spigotmc.org/resources/${r.id}/`,
+    // Spigot 只有 testedVersions，没有明确的 loader 分类——默认 Bukkit/Spigot 兼容
+    serverTypes: ['bukkit', 'spigot'],
+    gameVersions: r.testedVersions || [],
   }
 }
 
@@ -47,12 +50,12 @@ export async function searchSpiget(query: string, page = 1, size = 10): Promise<
 }
 
 export async function getSpigetResource(id: string): Promise<PluginBase> {
-  const r = await apiFetch<SpigetResource>('spigot', `/resources/${id}`)
+  const r = await apiFetch<SpigetResource>('spigot', `/resources/${id}`, { cacheType: 'detail' })
   return toPluginBase(r)
 }
 
 export async function getSpigetResourceDescription(id: string): Promise<string> {
-  const r = await apiFetch<{ id: number; description: string }>('spigot', `/resources/${id}`)
+  const r = await apiFetch<{ id: number; description: string }>('spigot', `/resources/${id}`, { cacheType: 'detail' })
   // Spiget API 返回的描述是 base64 编码的 HTML
   if (r.description) {
     return decodeBase64(r.description)
@@ -61,7 +64,7 @@ export async function getSpigetResourceDescription(id: string): Promise<string> 
 }
 
 export async function getSpigetCategories(): Promise<SpigetCategory[]> {
-  return apiFetch<SpigetCategory[]>('spigot', '/categories?size=50')
+  return apiFetch<SpigetCategory[]>('spigot', '/categories?size=50', { cacheType: 'meta' })
 }
 
 export async function getSpigetCategoryResources(categoryId: number, page = 1, size = 10): Promise<PluginBase[]> {
@@ -73,7 +76,7 @@ export async function getSpigetCategoryResources(categoryId: number, page = 1, s
 }
 
 export async function getSpigetAuthor(authorId: string): Promise<SpigetAuthor> {
-  return apiFetch<SpigetAuthor>('spigot', `/authors/${authorId}`)
+  return apiFetch<SpigetAuthor>('spigot', `/authors/${authorId}`, { cacheType: 'meta' })
 }
 
 export async function getSpigetAuthorResources(authorId: string, page = 1, size = 10): Promise<PluginBase[]> {

@@ -488,6 +488,7 @@ export default function MainPage() {
                           name: displayName,
                           tag: displayTag,
                         }}
+                        highlight={query}
                       />
                     </div>
                   )

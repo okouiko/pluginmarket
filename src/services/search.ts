@@ -22,6 +22,7 @@ export async function searchAll(query: string, page = 1, size = 10): Promise<Plu
   }
 
   const allResults = await Promise.all(promises)
+  console.log('[searchAll] platforms:', platforms, 'counts per platform:', allResults.map(r => r.length))
   for (const r of allResults) {
     results.push(...r)
   }

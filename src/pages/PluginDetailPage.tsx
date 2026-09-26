@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Heart, ExternalLink, Download, Star, User, MessageSquare, Languages, Loader2, Send, Sparkles, AlertCircle, FileText } from 'lucide-react'
+import { ArrowLeft, Heart, ExternalLink, Download, Star, User, MessageSquare, Languages, Loader2, Send, Sparkles, AlertCircle, FileText, Package } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
@@ -12,6 +12,9 @@ import { getModrinthProject, getModrinthProjectDescription } from '@/services/mo
 import { formatDownloads, getPlatformName } from '@/services/search'
 import { isAIAvailable, chatCompletionStream, translateDocumentStream, describeImages } from '@/services/ai'
 import { PlatformIcon } from '@/components/PlatformIcons'
+import VersionsList from '@/components/VersionsList'
+import CompatInfo from '@/components/CompatInfo'
+import SimilarPlugins from '@/components/SimilarPlugins'
 
 function ApiKeyWarning({ feature }: { feature: string }) {
   return (
@@ -49,7 +52,7 @@ export default function PluginDetailPage() {
   const [plugin, setPlugin] = useState<PluginBase | null>(null)
   const [description, setDescription] = useState('')
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'description' | 'chat' | 'translate'>('description')
+  const [activeTab, setActiveTab] = useState<'description' | 'versions' | 'chat' | 'translate'>('description')
 
   // AI Chat state
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([])
@@ -295,6 +298,14 @@ ${description.substring(0, 3000)}
           <FileText className="w-4 h-4" /> 描述
         </button>
         <button
+          onClick={() => setActiveTab('versions')}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors ${
+            activeTab === 'versions' ? 'bg-mc-green/10 dark:bg-mc-green/20 text-mc-green font-medium' : 'text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-border/50'
+          }`}
+        >
+          <Package className="w-4 h-4" /> 版本
+        </button>
+        <button
           onClick={() => setActiveTab('chat')}
           className={`flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm transition-colors ${
             activeTab === 'chat' ? 'bg-mc-green/10 dark:bg-mc-green/20 text-mc-green font-medium' : 'text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-border/50'
@@ -311,6 +322,18 @@ ${description.substring(0, 3000)}
           <Languages className="w-4 h-4" /> AI 翻译
         </button>
       </div>
+
+      {/* 服务端兼容 + 相似插件（只有描述 tab 显示） */}
+      {activeTab === 'description' && plugin && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="md:col-span-1">
+            <CompatInfo plugin={plugin} />
+          </div>
+          <div className="md:col-span-2">
+            <SimilarPlugins plugin={plugin} />
+          </div>
+        </div>
+      )}
 
       {/* Tab content */}
       <div className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-6">
@@ -347,6 +370,10 @@ ${description.substring(0, 3000)}
               </ReactMarkdown>
             )}
           </div>
+        )}
+
+        {activeTab === 'versions' && plugin && (
+          <VersionsList platform={platform as any} id={platform === 'hangar' ? id! : plugin.platformId} subId={platform === 'hangar' ? subId : undefined} />
         )}
 
         {activeTab === 'chat' && (

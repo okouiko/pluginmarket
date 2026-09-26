@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Search, Sparkles, Loader2, AlertCircle, Send, X, Bot, User, BookOpen, ExternalLink } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -81,12 +81,45 @@ export default function SearchBar({ onSearch, initialQuery = '' }: Props) {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [showApiKeyWarning, setShowApiKeyWarning] = useState(false)
   const [searchResult, setSearchResult] = useState<{ keywords: string[]; filters: SearchFilters } | null>(null)
+  // 实时建议
+  const [liveSuggestions, setLiveSuggestions] = useState<PluginBase[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   const { searchHistory, addSearchHistory } = useAppStore()
   const inputRef = useRef<HTMLInputElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
 
   const aiAvailable = isAIAvailable('search') || isAIAvailable('decision')
+
+  // 实时建议 debounce
+  const debouncedSuggest = useCallback(
+    (() => {
+      let timer: ReturnType<typeof setTimeout> | null = null
+      let active = true
+      return (q: string) => {
+        if (timer) clearTimeout(timer)
+        if (q.trim().length < 2 || aiMode) {
+          setLiveSuggestions([])
+          return
+        }
+        setSuggestionsLoading(true)
+        timer = setTimeout(async () => {
+          try {
+            const results = await searchAll(q.trim(), 1, 5)
+            if (active) setLiveSuggestions(results.slice(0, 5))
+          } catch {
+            if (active) setLiveSuggestions([])
+          } finally {
+            if (active) setSuggestionsLoading(false)
+          }
+        }, 250)
+      }
+    })(),
+    [aiMode]
+  )
+
+  // 组件卸载时取消
+  useEffect(() => () => { (debouncedSuggest as any).active = false }, [debouncedSuggest])
 
   // 滚动到对话底部（仅在对话框内部滚动，不影响页面）
   useEffect(() => {
@@ -458,8 +491,12 @@ ${docContent}
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => searchHistory.length > 0 && !aiMode && setShowSuggestions(true)}
+            onChange={(e) => {
+              const v = e.target.value
+              setQuery(v)
+              if (!aiMode) debouncedSuggest(v)
+            }}
+            onFocus={() => !aiMode && setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -702,20 +739,65 @@ ${docContent}
         </div>
       )}
 
-      {/* Search history */}
-      {showSuggestions && searchHistory.length > 0 && !aiMode && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-dark-card border border-mc-border dark:border-dark-border rounded-xl shadow-lg z-50 overflow-hidden dropdown-animate">
-          <div className="px-3 py-2 text-xs text-gray-400 dark:text-dark-text-secondary border-b border-mc-border dark:border-dark-border">搜索历史</div>
-          {searchHistory.slice(0, 8).map((h, i) => (
-            <button
-              key={i}
-              onClick={() => { setQuery(h); handleSearch(h) }}
-              className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-dark-text hover:bg-gray-50 dark:hover:bg-dark-border/50 flex items-center gap-2"
-            >
-              <Search className="w-3 h-3 text-gray-400 dark:text-gray-600" />
-              {h}
-            </button>
-          ))}
+      {/* Suggestions dropdown */}
+      {showSuggestions && !aiMode && (liveSuggestions.length > 0 || suggestionsLoading || searchHistory.length > 0) && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-dark-card border border-mc-border dark:border-dark-border rounded-xl shadow-lg z-50 overflow-hidden dropdown-animate max-h-[360px] overflow-y-auto">
+          {/* Loading */}
+          {suggestionsLoading && (
+            <div className="px-3 py-3 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin" /> 搜索中...
+            </div>
+          )}
+
+          {/* Live suggestions (跨平台实时搜索结果) */}
+          {!suggestionsLoading && liveSuggestions.length > 0 && (
+            <>
+              <div className="px-3 py-1.5 text-xs text-mc-green font-medium border-b border-mc-border dark:border-dark-border">
+                实时建议
+              </div>
+              {liveSuggestions.map((p, i) => (
+                <button
+                  key={`live-${i}`}
+                  onClick={() => handleSearch(p.name)}
+                  className="w-full px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-dark-border/50 flex items-center gap-2 border-b border-gray-50 dark:border-dark-border/50 last:border-b-0"
+                >
+                  {p.icon ? (
+                    <img src={p.icon} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                  ) : (
+                    <div className="w-6 h-6 rounded bg-mc-green/10 flex items-center justify-center flex-shrink-0 text-[10px] text-mc-green font-bold">
+                      {p.name[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-gray-800 dark:text-dark-text truncate font-medium">{p.name}</div>
+                    <div className="text-[11px] text-gray-500 dark:text-dark-text-secondary truncate">{p.tag}</div>
+                  </div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-dark-border text-gray-500 dark:text-dark-text-secondary flex-shrink-0">
+                    {p.platform === 'spigot' ? 'Spigot' : p.platform === 'hangar' ? 'Hangar' : 'Modrinth'}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {/* Search history (仅在无实时建议时或有 query 时显示) */}
+          {searchHistory.length > 0 && (
+            <>
+              <div className="px-3 py-1.5 text-xs text-gray-400 border-b border-mc-border dark:border-dark-border">
+                搜索历史
+              </div>
+              {searchHistory.slice(0, 5).map((h, i) => (
+                <button
+                  key={`hist-${i}`}
+                  onClick={() => { setQuery(h); handleSearch(h) }}
+                  className="w-full px-3 py-1.5 text-left text-sm text-gray-700 dark:text-dark-text hover:bg-gray-50 dark:hover:bg-dark-border/50 flex items-center gap-2"
+                >
+                  <Search className="w-3 h-3 text-gray-400 dark:text-gray-600" />
+                  {h}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>

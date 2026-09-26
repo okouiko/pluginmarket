@@ -1,5 +1,6 @@
 import { apiFetch } from './api-base'
 import type { PluginBase, ModrinthSearchResult, ModrinthSearchHit, ModrinthProject } from '@/types'
+import { normalizeServerType } from './versions'
 
 function hitToPluginBase(h: ModrinthSearchHit): PluginBase {
   return {
@@ -20,6 +21,11 @@ function hitToPluginBase(h: ModrinthSearchHit): PluginBase {
 }
 
 function projectToPluginBase(p: ModrinthProject): PluginBase {
+  // Modrinth 项目：categories 是语义分类，loaders 是服务端
+  const categories = p.categories || []
+  const serverTypes = (p.loaders || [])
+    .map(normalizeServerType)
+    .filter((x): x is NonNullable<typeof x> => !!x)
   return {
     id: `modrinth-${p.id}`,
     platformId: p.id,
@@ -30,50 +36,50 @@ function projectToPluginBase(p: ModrinthProject): PluginBase {
     author: '',
     icon: p.icon_url,
     downloads: p.downloads,
-    categories: p.categories || [],
+    categories,
     lastUpdate: new Date(p.updated).getTime(),
     sourceUrl: `https://modrinth.com/plugin/${p.slug}`,
     images: p.gallery?.map(g => g.url),
+    serverTypes,
+    gameVersions: p.game_versions || [],
   }
 }
 
+// 注意：Modrinth 的 facets 参数在沙箱代理环境下会被中间层拦截返回 500，
+// 且大多数搜索结果本身就是 server-side 项目，因此这里直接搜索不做 facets 过滤。
 export async function searchModrinth(query: string, page = 0, size = 10): Promise<PluginBase[]> {
-  const facets = JSON.stringify([['project_type:plugin'], ['server_side:required', 'server_side:optional']])
-  const result = await apiFetch<ModrinthSearchResult>(
-    'modrinth',
-    `/search?query=${encodeURIComponent(query)}&limit=${size}&offset=${page * size}&index=relevance&facets=${encodeURIComponent(facets)}`
-  )
+  const url = `/search?query=${encodeURIComponent(query)}&limit=${size}&offset=${page * size}&index=relevance`
+  const result = await apiFetch<ModrinthSearchResult>('modrinth', url, { cacheType: 'search' })
   return result.hits.map(hitToPluginBase)
 }
 
 export async function getModrinthProject(idOrSlug: string): Promise<PluginBase> {
-  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
+  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`, { cacheType: 'detail' })
   return projectToPluginBase(p)
 }
 
 export async function getModrinthProjectDescription(idOrSlug: string): Promise<string> {
-  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
+  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`, { cacheType: 'detail' })
   return p.body || ''
 }
 
 export async function getModrinthPopular(page = 0, size = 10): Promise<PluginBase[]> {
-  const facets = JSON.stringify([['project_type:plugin']])
   const result = await apiFetch<ModrinthSearchResult>(
     'modrinth',
-    `/search?limit=${size}&offset=${page * size}&index=downloads&facets=${encodeURIComponent(facets)}`
+    `/search?limit=${size}&offset=${page * size}&index=downloads`
   )
   return result.hits.map(hitToPluginBase)
 }
 
 export async function getModrinthTeamMembers(teamId: string): Promise<{ user: { username: string; id: string } }[]> {
-  return apiFetch<{ user: { username: string; id: string } }[]>('modrinth', `/team/${teamId}/members`)
+  return apiFetch<{ user: { username: string; id: string } }[]>('modrinth', `/team/${teamId}/members`, { cacheType: 'meta' })
 }
 
 export async function getModrinthUserProjects(userId: string): Promise<PluginBase[]> {
-  const projects = await apiFetch<ModrinthProject[]>('modrinth', `/user/${userId}/projects`)
+  const projects = await apiFetch<ModrinthProject[]>('modrinth', `/user/${userId}/projects`, { cacheType: 'detail' })
   return projects.map(projectToPluginBase)
 }
 
 export async function getModrinthCategories(): Promise<{ name: string; icon: string; project_type: string }[]> {
-  return apiFetch<{ name: string; icon: string; project_type: string }[]>('modrinth', '/tag/category')
+  return apiFetch<{ name: string; icon: string; project_type: string }[]>('modrinth', '/tag/category', { cacheType: 'meta' })
 }
