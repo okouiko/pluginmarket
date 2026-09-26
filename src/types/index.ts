@@ -188,6 +188,15 @@ export interface AIStreamChunk {
 export interface Favorite {
   plugin: PluginBase
   addedAt: number
+  folderId?: string // 所属文件夹 ID，undefined 表示在根目录"未分类"
+}
+
+export interface FavoriteFolder {
+  id: string
+  name: string
+  icon?: string    // emoji 或 lucide 名字
+  color?: string   // tailwind color token 如 "mc-green"
+  createdAt: number
 }
 
 // 设置

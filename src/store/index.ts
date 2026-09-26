@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PluginBase, Platform, Favorite, AppSettings, AIModelConfig, AIRoleAssignment, AIRole } from '@/types'
+import type { PluginBase, Platform, Favorite, FavoriteFolder, AppSettings, AIModelConfig, AIRoleAssignment, AIRole } from '@/types'
 
 const STORAGE_KEY = 'mc-plugin-market'
 
@@ -92,11 +92,16 @@ interface AppState {
   enabledPlatforms: Platform[]
   togglePlatform: (p: Platform) => void
 
-  // 收藏
+  // 收藏 + 文件夹
   favorites: Favorite[]
-  addFavorite: (plugin: PluginBase) => void
+  addFavorite: (plugin: PluginBase, folderId?: string) => void
   removeFavorite: (id: string) => void
   isFavorite: (id: string) => boolean
+  moveFavorite: (id: string, folderId: string | undefined) => void // undefined = 根目录
+  folders: FavoriteFolder[]
+  addFolder: (name: string) => string
+  renameFolder: (id: string, name: string) => void
+  deleteFolder: (id: string) => void // 删除文件夹时其中收藏回到根目录
 
   // AI 设置
   models: AIModelConfig[]
@@ -144,8 +149,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   favorites: loadFromStorage<Favorite[]>('favorites', []),
-  addFavorite: (plugin) => {
-    const fav: Favorite = { plugin, addedAt: Date.now() }
+  addFavorite: (plugin, folderId) => {
+    // 已收藏则跳过
+    if (get().favorites.some(f => f.plugin.id === plugin.id)) return
+    const fav: Favorite = { plugin, addedAt: Date.now(), folderId }
     const next = [...get().favorites, fav]
     set({ favorites: next })
     saveToStorage('favorites', next)
@@ -156,6 +163,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveToStorage('favorites', next)
   },
   isFavorite: (id) => get().favorites.some(f => f.plugin.id === id),
+  moveFavorite: (id, folderId) => {
+    const next = get().favorites.map(f =>
+      f.plugin.id === id ? { ...f, folderId } : f
+    )
+    set({ favorites: next })
+    saveToStorage('favorites', next)
+  },
+  folders: loadFromStorage<FavoriteFolder[]>('folders', []),
+  addFolder: (name) => {
+    const id = `folder-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const next = [...get().folders, { id, name, createdAt: Date.now() }]
+    set({ folders: next })
+    saveToStorage('folders', next)
+    return id
+  },
+  renameFolder: (id, name) => {
+    const next = get().folders.map(f => f.id === id ? { ...f, name } : f)
+    set({ folders: next })
+    saveToStorage('folders', next)
+  },
+  deleteFolder: (id) => {
+    // 删除文件夹：文件夹本身移除 + 其中插件回到根目录（folderId = undefined）
+    const nextFolders = get().folders.filter(f => f.id !== id)
+    const nextFavs = get().favorites.map(f =>
+      f.folderId === id ? { ...f, folderId: undefined } : f
+    )
+    set({ folders: nextFolders, favorites: nextFavs })
+    saveToStorage('folders', nextFolders)
+    saveToStorage('favorites', nextFavs)
+  },
 
   models: loadFromStorage<AIModelConfig[]>('models', defaultModels),
   roleAssignments: loadFromStorage<AIRoleAssignment[]>('roleAssignments', defaultRoleAssignments),
