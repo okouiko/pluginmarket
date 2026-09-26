@@ -4,5 +4,10 @@
   "outputDirectory": "dist",
   "cleanUrls": false,
   "trailingSlash": false,
-  "rewrites": []
+  "rewrites": [
+    { "source": "/api/spiget/:path*", "destination": "https://api.spiget.org/v2/:path*" },
+    { "source": "/api/hangar/:path*", "destination": "https://hangar.papermc.io/api/v1/:path*" },
+    { "source": "/api/modrinth/:path*", "destination": "https://api.modrinth.com/v2/:path*" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
 }
