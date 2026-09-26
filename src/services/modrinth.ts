@@ -1,5 +1,6 @@
 import { apiFetch } from './api-base'
 import type { PluginBase, ModrinthSearchResult, ModrinthSearchHit, ModrinthProject } from '@/types'
+import { normalizeServerType } from './versions'
 
 function hitToPluginBase(h: ModrinthSearchHit): PluginBase {
   return {
@@ -20,6 +21,11 @@ function hitToPluginBase(h: ModrinthSearchHit): PluginBase {
 }
 
 function projectToPluginBase(p: ModrinthProject): PluginBase {
+  // Modrinth 项目：categories 是语义分类，loaders 是服务端
+  const categories = p.categories || []
+  const serverTypes = (p.loaders || [])
+    .map(normalizeServerType)
+    .filter((x): x is NonNullable<typeof x> => !!x)
   return {
     id: `modrinth-${p.id}`,
     platformId: p.id,
@@ -30,10 +36,12 @@ function projectToPluginBase(p: ModrinthProject): PluginBase {
     author: '',
     icon: p.icon_url,
     downloads: p.downloads,
-    categories: p.categories || [],
+    categories,
     lastUpdate: new Date(p.updated).getTime(),
     sourceUrl: `https://modrinth.com/plugin/${p.slug}`,
     images: p.gallery?.map(g => g.url),
+    serverTypes,
+    gameVersions: p.game_versions || [],
   }
 }
 

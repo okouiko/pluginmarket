@@ -20,10 +20,13 @@ function toPluginBase(r: SpigetResource): PluginBase {
     icon: spigetIconUrl(r),
     rating: r.rating?.average,
     downloads: r.downloads,
-    categories: [],
+    categories: r.category?.name ? [r.category.name] : [],
     version: r.testedVersions?.[r.testedVersions.length - 1],
     lastUpdate: r.updateDate * 1000,
     sourceUrl: `https://www.spigotmc.org/resources/${r.id}/`,
+    // Spigot 只有 testedVersions，没有明确的 loader 分类——默认 Bukkit/Spigot 兼容
+    serverTypes: ['bukkit', 'spigot'],
+    gameVersions: r.testedVersions || [],
   }
 }
 

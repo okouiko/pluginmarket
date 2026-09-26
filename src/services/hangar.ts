@@ -1,7 +1,9 @@
 import { apiFetch, apiFetchText } from './api-base'
 import type { PluginBase, HangarProject, HangarSearchResult } from '@/types'
+import { hangarProjectToCompat } from './versions'
 
 function toPluginBase(p: HangarProject): PluginBase {
+  const { serverTypes, gameVersions } = hangarProjectToCompat(p.supportedPlatforms)
   return {
     id: `hangar-${p.namespace.owner}-${p.namespace.slug}`,
     platformId: `${p.namespace.owner}/${p.namespace.slug}`,
@@ -16,6 +18,8 @@ function toPluginBase(p: HangarProject): PluginBase {
     categories: [p.category, ...(p.settings?.tags || [])],
     lastUpdate: new Date(p.lastUpdated).getTime(),
     sourceUrl: `https://hangar.papermc.io/${p.namespace.owner}/${p.namespace.slug}`,
+    serverTypes,
+    gameVersions,
   }
 }
 
