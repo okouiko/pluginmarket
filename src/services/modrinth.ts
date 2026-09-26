@@ -37,12 +37,11 @@ function projectToPluginBase(p: ModrinthProject): PluginBase {
   }
 }
 
+// 注意：Modrinth 的 facets 参数在沙箱代理环境下会被中间层拦截返回 500，
+// 且大多数搜索结果本身就是 server-side 项目，因此这里直接搜索不做 facets 过滤。
 export async function searchModrinth(query: string, page = 0, size = 10): Promise<PluginBase[]> {
-  const facets = JSON.stringify([['project_type:plugin'], ['server_side:required', 'server_side:optional']])
-  const result = await apiFetch<ModrinthSearchResult>(
-    'modrinth',
-    `/search?query=${encodeURIComponent(query)}&limit=${size}&offset=${page * size}&index=relevance&facets=${encodeURIComponent(facets)}`
-  )
+  const url = `/search?query=${encodeURIComponent(query)}&limit=${size}&offset=${page * size}&index=relevance`
+  const result = await apiFetch<ModrinthSearchResult>('modrinth', url)
   return result.hits.map(hitToPluginBase)
 }
 
@@ -57,10 +56,9 @@ export async function getModrinthProjectDescription(idOrSlug: string): Promise<s
 }
 
 export async function getModrinthPopular(page = 0, size = 10): Promise<PluginBase[]> {
-  const facets = JSON.stringify([['project_type:plugin']])
   const result = await apiFetch<ModrinthSearchResult>(
     'modrinth',
-    `/search?limit=${size}&offset=${page * size}&index=downloads&facets=${encodeURIComponent(facets)}`
+    `/search?limit=${size}&offset=${page * size}&index=downloads`
   )
   return result.hits.map(hitToPluginBase)
 }

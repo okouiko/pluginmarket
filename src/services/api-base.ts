@@ -12,8 +12,7 @@ const CACHE_TTL = 60_000 // 60s
 const INFLIGHT = new Map<string, Promise<unknown>>() // 并发去重
 
 function cacheKey(url: string): string {
-  // 归一化：去掉 hash、query 里的动态时间戳等，保留核心路径+参数
-  return url.split('?')[0] + '?' + (url.split('?')[1] ?? '')
+  return url
 }
 
 // ============ 检测运行环境 ============
@@ -23,6 +22,9 @@ export function isTauri(): boolean {
 
 // ============ API 基础 URL ============
 function getBaseUrl(platform: Platform): string {
+  const store = useAppStore.getState()
+  const corsProxy = store.corsProxy
+
   if (isTauri()) {
     switch (platform) {
       case 'spigot': return 'https://api.spiget.org/v2'
@@ -31,6 +33,9 @@ function getBaseUrl(platform: Platform): string {
     }
   }
 
+  // 开发模式：始终走 vite proxy（vite.config.ts 配置了 HttpsProxyAgent，
+  // 沙箱环境下可以通过 HTTP_PROXY 正确访问外部 API；
+  // 而 allorigins.win 等 CORS 代理的后端服务器访问 Hangar/Spigot 不通）
   if (import.meta.env.DEV) {
     switch (platform) {
       case 'spigot': return '/api/spiget'
@@ -40,28 +45,25 @@ function getBaseUrl(platform: Platform): string {
   }
 
   // 生产环境用 CORS 代理
-  const store = useAppStore.getState()
-  const proxy = store.corsProxy
   switch (platform) {
-    case 'spigot': return `${proxy}${encodeURIComponent('https://api.spiget.org/v2')}`
-    case 'hangar': return `${proxy}${encodeURIComponent('https://hangar.papermc.io/api/v1')}`
-    case 'modrinth': return `${proxy}${encodeURIComponent('https://api.modrinth.com/v2')}`
+    case 'spigot': return `${corsProxy}${encodeURIComponent('https://api.spiget.org/v2')}`
+    case 'hangar': return `${corsProxy}${encodeURIComponent('https://hangar.papermc.io/api/v1')}`
+    case 'modrinth': return `${corsProxy}${encodeURIComponent('https://api.modrinth.com/v2')}`
   }
 }
 
 function buildUrl(platform: Platform, path: string): string {
   const base = getBaseUrl(platform)
-  if (import.meta.env.DEV || isTauri()) {
+  // vite proxy 或 tauri：base 已经是相对/完整基础路径，直接拼
+  if (!base.startsWith('http://') && !base.startsWith('https://')) {
     return `${base}${path}`
   }
-  // 生产 CORS 代理模式：把完整 URL 编码进 proxy
-  const directUrls: Record<Platform, string> = {
-    spigot: 'https://api.spiget.org/v2',
-    hangar: 'https://hangar.papermc.io/api/v1',
-    modrinth: 'https://api.modrinth.com/v2',
-  }
-  const store = useAppStore.getState()
-  return `${store.corsProxy}${encodeURIComponent(directUrls[platform] + path)}`
+  // CORS 代理：base 里已经编码了目标基础路径，再把 path 拼上去重新编码
+  // （CORS 代理格式是 proxy + encodeURIComponent(fullTargetUrl)）
+  // 所以 base = proxy + encoded(完整目标基础URL)
+  // path 还没被编码，直接拼在 base 后面即可，因为 base 里的 encoded URL 最后一段
+  // 就是 "v2"，path 比如 "/search?...query=xxx" 直接拼在后面就是合法 URL
+  return `${base}${encodeURIComponent(path)}`
 }
 
 // ============ 带超时的 fetch ============
@@ -90,7 +92,9 @@ async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit)
 
   // 2) 并发去重：同 key 已经在飞，直接等那个 Promise
   const inflight = INFLIGHT.get(key)
-  if (inflight) return inflight as Promise<T>
+  if (inflight) {
+    return inflight as Promise<T>
+  }
 
   const promise = (async () => {
     try {
@@ -110,6 +114,9 @@ async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit)
       // 3) 写入缓存
       MEM_CACHE.set(key, { data, expiresAt: Date.now() + CACHE_TTL })
       return data as T
+    } catch (err) {
+      console.error('[apiFetch]', platform, '失败:', (err as any)?.message || err, 'URL:', url.substring(0, 120))
+      throw err
     } finally {
       INFLIGHT.delete(key)
     }
