@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAppStore } from '@/store'
 import type { AIModelConfig, AIRole, AIProvider } from '@/types'
-import { Settings, Plus, Trash2, Eye, EyeOff, RotateCcw, Globe, Bot, Languages, Search, MessageSquare, Sparkles, AlertCircle, Key, X } from 'lucide-react'
+import { Settings, Plus, Trash2, Eye, EyeOff, RotateCcw, Globe, Bot, Languages, Search, MessageSquare, Sparkles, AlertCircle, Key, X, Database, Trash } from 'lucide-react'
+import { getCacheStats, clearApiCache, DEFAULT_CACHE_CONFIG, type CacheType } from '@/services/api-base'
 
 const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot }> = {
   decision: { label: '决策/提示词', desc: '最聪明的模型，用于分析和决策', icon: Sparkles },
@@ -12,7 +13,7 @@ const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot
 }
 
 export default function SettingsPage() {
-  const { models, roleAssignments, updateModel, addModel, removeModel, setRoleAssignment, corsProxy, setCorsProxy } = useAppStore()
+  const { models, roleAssignments, updateModel, addModel, removeModel, setRoleAssignment, corsProxy, setCorsProxy, cacheEnabled, cacheByType, updateCacheTTL, toggleCacheType, resetCacheConfig } = useAppStore()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [newModelOpen, setNewModelOpen] = useState(false)
   const [newModel, setNewModel] = useState<Partial<AIModelConfig>>({
@@ -79,6 +80,15 @@ export default function SettingsPage() {
           className="w-full px-3 py-2 rounded-lg border border-mc-border dark:border-dark-border bg-white dark:bg-dark-bg text-sm text-gray-800 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-mc-green"
         />
       </section>
+
+      {/* API 缓存管理 */}
+      <CacheManager
+        cacheEnabled={cacheEnabled}
+        cacheByType={cacheByType}
+        onToggleType={toggleCacheType}
+        onUpdateTTL={updateCacheTTL}
+        onReset={resetCacheConfig}
+      />
 
       {/* AI Models */}
       <section className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-5 mb-6">
@@ -356,6 +366,159 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+    </div>
+  )
+}
+
+// ============ 缓存管理卡片 ============
+function CacheManager({
+  cacheByType,
+  onToggleType,
+  onUpdateTTL,
+  onReset,
+}: {
+  cacheEnabled: boolean
+  cacheByType: Record<string, { ttl: number; enabled: boolean; label: string; desc: string }>
+  onToggleType: (type: CacheType) => void
+  onUpdateTTL: (type: CacheType, ttl: number) => void
+  onReset: () => void
+}) {
+  const [stats, setStats] = useState(getCacheStats())
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // 刷新统计
+  const refresh = () => { setStats(getCacheStats()); setRefreshKey(k => k + 1) }
+
+  // 定时刷新统计（5s）
+  useState(() => {
+    const id = setInterval(refresh, 5000)
+    return () => clearInterval(id)
+  })
+
+  const fmtSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B'
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+    return (bytes / 1024 / 1024).toFixed(2) + ' MB'
+  }
+
+  const fmtTTL = (ms: number) => {
+    if (ms < 60_000) return Math.round(ms / 1000) + ' 秒'
+    if (ms < 3600_000) return Math.round(ms / 60_000) + ' 分钟'
+    if (ms < 86_400_000) return Math.round(ms / 3600_000) + ' 小时'
+    return Math.round(ms / 86_400_000) + ' 天'
+  }
+
+  const ttlPresets = [
+    { label: '30秒', value: 30_000 },
+    { label: '2分钟', value: 2 * 60_000 },
+    { label: '10分钟', value: 10 * 60_000 },
+    { label: '30分钟', value: 30 * 60_000 },
+    { label: '1小时', value: 60 * 60_000 },
+    { label: '2小时', value: 2 * 60 * 60_000 },
+    { label: '24小时', value: 24 * 60 * 60_000 },
+  ]
+
+  const typeColors: Record<string, string> = {
+    search:  'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+    popular: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400',
+    detail:  'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+    version: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400',
+    meta:    'bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300',
+  }
+
+  return (
+    <section className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-5 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-minecraft text-sm font-medium flex items-center gap-2 text-gray-800 dark:text-dark-text">
+          <Database className="w-4 h-4 text-mc-green" />
+          API 缓存管理
+        </h2>
+        <div className="flex items-center gap-2">
+          <button onClick={refresh} className="text-xs text-gray-500 hover:text-mc-green flex items-center gap-1">
+            <RotateCcw className="w-3 h-3" /> 刷新统计
+          </button>
+        </div>
+      </div>
+
+      {/* 统计概览 */}
+      <div className="grid grid-cols-4 gap-3 mb-4 p-3 bg-gray-50 dark:bg-dark-bg rounded-lg">
+        <Stat label="缓存条目" value={stats.totalEntries.toString()} sub={`过期 ${stats.expiredEntries}`} />
+        <Stat label="占用大小" value={fmtSize(stats.totalSize)} />
+        <Stat label="持久化" value="localStorage" />
+        <Stat label="离线可用" value="24h stale" />
+      </div>
+
+      {/* 按类型配置 */}
+      <div className="space-y-2">
+        {(Object.keys(DEFAULT_CACHE_CONFIG) as CacheType[]).map(type => {
+          const cfg = cacheByType[type] ?? DEFAULT_CACHE_CONFIG[type]
+          const presetIdx = ttlPresets.findIndex(p => p.value === cfg.ttl)
+          return (
+            <div key={type} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-dark-border/30">
+              <div className={`w-2 h-2 rounded-full ${typeColors[type]?.split(' ')[0]?.replace('bg-', 'bg-') ?? 'bg-gray-400'}`} />
+              <span className={`text-xs font-medium w-16 ${typeColors[type]?.split(' ').slice(-1)[0] ?? 'text-gray-600'}`}>{cfg.label}</span>
+              <span className="text-[10px] text-gray-400 flex-1 truncate">{cfg.desc}</span>
+              <div className="flex items-center gap-1">
+                <select
+                  value={presetIdx >= 0 ? presetIdx : -1}
+                  onChange={(e) => {
+                    const idx = parseInt(e.target.value)
+                    if (idx >= 0) onUpdateTTL(type, ttlPresets[idx].value)
+                  }}
+                  disabled={!cfg.enabled}
+                  className="text-[11px] px-2 py-0.5 rounded border border-mc-border dark:border-dark-border bg-white dark:bg-dark-bg disabled:opacity-40"
+                >
+                  {ttlPresets.map((p, i) => <option key={i} value={i}>{p.label}</option>)}
+                  {presetIdx < 0 && <option value={-1}>{fmtTTL(cfg.ttl)}</option>}
+                </select>
+                <span className="text-[10px] text-gray-400 w-14 text-right">
+                  {stats.byType[type]?.count ?? 0} 条
+                </span>
+                <span className="text-[10px] text-gray-400 w-16 text-right">
+                  {fmtSize(stats.byType[type]?.size ?? 0)}
+                </span>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cfg.enabled}
+                    onChange={() => onToggleType(type)}
+                    className="w-3 h-3 rounded accent-mc-green"
+                  />
+                </label>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* 操作按钮 */}
+      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-mc-border dark:border-dark-border">
+        <button
+          onClick={() => { clearApiCache(); refresh() }}
+          className="text-xs px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 flex items-center gap-1"
+        >
+          <Trash className="w-3 h-3" /> 清全部缓存
+        </button>
+        <button
+          onClick={() => { clearApiCache(); onReset(); refresh() }}
+          className="text-xs px-3 py-1.5 bg-gray-50 dark:bg-dark-border text-gray-600 dark:text-dark-text-secondary rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border/60 flex items-center gap-1"
+        >
+          <RotateCcw className="w-3 h-3" /> 重置默认配置
+        </button>
+        <span className="text-[10px] text-gray-400 ml-auto">
+          {refreshKey > 0 && '统计已刷新'} · 刷新页面也会自动加载缓存
+        </span>
+      </div>
+    </section>
+  )
+}
+
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div>
+      <div className="text-[10px] text-gray-400 dark:text-dark-text-secondary">{label}</div>
+      <div className="text-base font-minecraft text-gray-800 dark:text-dark-text leading-tight">{value}</div>
+      {sub && <div className="text-[10px] text-gray-400">{sub}</div>}
     </div>
   )
 }

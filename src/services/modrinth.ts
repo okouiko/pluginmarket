@@ -49,17 +49,17 @@ function projectToPluginBase(p: ModrinthProject): PluginBase {
 // 且大多数搜索结果本身就是 server-side 项目，因此这里直接搜索不做 facets 过滤。
 export async function searchModrinth(query: string, page = 0, size = 10): Promise<PluginBase[]> {
   const url = `/search?query=${encodeURIComponent(query)}&limit=${size}&offset=${page * size}&index=relevance`
-  const result = await apiFetch<ModrinthSearchResult>('modrinth', url)
+  const result = await apiFetch<ModrinthSearchResult>('modrinth', url, { cacheType: 'search' })
   return result.hits.map(hitToPluginBase)
 }
 
 export async function getModrinthProject(idOrSlug: string): Promise<PluginBase> {
-  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
+  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`, { cacheType: 'detail' })
   return projectToPluginBase(p)
 }
 
 export async function getModrinthProjectDescription(idOrSlug: string): Promise<string> {
-  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
+  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`, { cacheType: 'detail' })
   return p.body || ''
 }
 
@@ -72,14 +72,14 @@ export async function getModrinthPopular(page = 0, size = 10): Promise<PluginBas
 }
 
 export async function getModrinthTeamMembers(teamId: string): Promise<{ user: { username: string; id: string } }[]> {
-  return apiFetch<{ user: { username: string; id: string } }[]>('modrinth', `/team/${teamId}/members`)
+  return apiFetch<{ user: { username: string; id: string } }[]>('modrinth', `/team/${teamId}/members`, { cacheType: 'meta' })
 }
 
 export async function getModrinthUserProjects(userId: string): Promise<PluginBase[]> {
-  const projects = await apiFetch<ModrinthProject[]>('modrinth', `/user/${userId}/projects`)
+  const projects = await apiFetch<ModrinthProject[]>('modrinth', `/user/${userId}/projects`, { cacheType: 'detail' })
   return projects.map(projectToPluginBase)
 }
 
 export async function getModrinthCategories(): Promise<{ name: string; icon: string; project_type: string }[]> {
-  return apiFetch<{ name: string; icon: string; project_type: string }[]>('modrinth', '/tag/category')
+  return apiFetch<{ name: string; icon: string; project_type: string }[]>('modrinth', '/tag/category', { cacheType: 'meta' })
 }

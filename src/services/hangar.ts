@@ -32,7 +32,7 @@ export async function searchHangar(query: string, page = 0, size = 10): Promise<
 }
 
 export async function getHangarProject(owner: string, slug: string): Promise<PluginBase> {
-  const p = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`)
+  const p = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`, { cacheType: 'detail' })
   return toPluginBase(p)
 }
 
@@ -44,7 +44,7 @@ export async function getHangarProject(owner: string, slug: string): Promise<Plu
 export async function getHangarProjectDescription(owner: string, slug: string): Promise<string> {
   try {
     // 1) 优先尝试获取完整 Markdown 主页
-    const markdown = await apiFetchText('hangar', `/pages/main/${owner}/${slug}`)
+    const markdown = await apiFetchText('hangar', `/pages/main/${owner}/${slug}`, { cacheType: 'detail' })
     if (markdown && markdown.trim().length > 0) {
       return markdown.trim()
     }
@@ -54,7 +54,7 @@ export async function getHangarProjectDescription(owner: string, slug: string): 
 
   // 2) Fallback：项目短描述 + 官网引导链接
   try {
-    const p = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`)
+    const p = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`, { cacheType: 'detail' })
     const projectUrl = `https://hangar.papermc.io/${owner}/${slug}`
     const shortDesc = p.description || ''
     if (shortDesc) {

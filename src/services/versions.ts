@@ -100,9 +100,9 @@ export function formatSize(bytes?: number): string {
 const SPIGOT_BASE = 'https://www.spigotmc.org'
 
 export async function getSpigetVersions(resourceId: string): Promise<PluginVersion[]> {
-  const versions = await apiFetch<SpigetVersion[]>('spigot', `/resources/${resourceId}/versions?size=50`)
+  const versions = await apiFetch<SpigetVersion[]>('spigot', `/resources/${resourceId}/versions?size=50`, { cacheType: 'version' })
   // Spiget 的版本不直接带 gameVersions，但 resource 详情有 testedVersions
-  const versionsWithMeta = await apiFetch<{ testedVersions: string[] }>('spigot', `/resources/${resourceId}`)
+  const versionsWithMeta = await apiFetch<{ testedVersions: string[] }>('spigot', `/resources/${resourceId}`, { cacheType: 'version' })
   const gameVersions = versionsWithMeta?.testedVersions ?? []
 
   return versions.map(v => ({

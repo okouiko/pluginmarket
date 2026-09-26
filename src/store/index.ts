@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { PluginBase, Platform, Favorite, FavoriteFolder, AppSettings, AIModelConfig, AIRoleAssignment, AIRole } from '@/types'
+import type { CacheType, CacheTypeConfig } from '@/services/api-base'
+import { DEFAULT_CACHE_CONFIG } from '@/services/api-base'
 
 const STORAGE_KEY = 'mc-plugin-market'
 
@@ -125,6 +127,13 @@ interface AppState {
   searchHistory: string[]
   addSearchHistory: (query: string) => void
   clearSearchHistory: () => void
+
+  // API 缓存配置
+  cacheEnabled: boolean
+  cacheByType: Record<CacheType, CacheTypeConfig>
+  updateCacheTTL: (type: CacheType, ttl: number) => void
+  toggleCacheType: (type: CacheType) => void
+  resetCacheConfig: () => void
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -256,5 +265,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearSearchHistory: () => {
     set({ searchHistory: [] })
     saveToStorage('searchHistory', [])
+  },
+
+  cacheEnabled: loadFromStorage<boolean>('cacheEnabled', true),
+  cacheByType: loadFromStorage<Record<CacheType, CacheTypeConfig>>('cacheByType', DEFAULT_CACHE_CONFIG),
+  updateCacheTTL: (type, ttl) => {
+    const current = get().cacheByType
+    const next = { ...current, [type]: { ...current[type], ttl } }
+    set({ cacheByType: next })
+    saveToStorage('cacheByType', next)
+  },
+  toggleCacheType: (type) => {
+    const current = get().cacheByType
+    const next = { ...current, [type]: { ...current[type], enabled: !current[type].enabled } }
+    set({ cacheByType: next })
+    saveToStorage('cacheByType', next)
+  },
+  resetCacheConfig: () => {
+    set({ cacheEnabled: true, cacheByType: DEFAULT_CACHE_CONFIG })
+    saveToStorage('cacheEnabled', true)
+    saveToStorage('cacheByType', DEFAULT_CACHE_CONFIG)
   },
 }))
