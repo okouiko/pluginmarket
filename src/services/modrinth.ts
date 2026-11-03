@@ -48,12 +48,23 @@ export async function searchModrinth(query: string, page = 0, size = 10): Promis
 
 export async function getModrinthProject(idOrSlug: string): Promise<PluginBase> {
   const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
-  return projectToPluginBase(p)
-}
+  const plugin = projectToPluginBase(p)
 
-export async function getModrinthProjectDescription(idOrSlug: string): Promise<string> {
-  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
-  return p.body || ''
+  // 详情接口不直接返回作者名，通过团队接口补全
+  if (p.team) {
+    try {
+      const members = await getModrinthTeamMembers(p.team)
+      const owner = members.find(member => member.user?.username)?.user
+      if (owner) {
+        plugin.author = owner.username
+        plugin.authorId = owner.id
+      }
+    } catch {
+      // 团队信息不可用时保留空作者，不阻塞详情展示
+    }
+  }
+
+  return plugin
 }
 
 export async function getModrinthPopular(page = 0, size = 10): Promise<PluginBase[]> {
@@ -65,15 +76,11 @@ export async function getModrinthPopular(page = 0, size = 10): Promise<PluginBas
   return result.hits.map(hitToPluginBase)
 }
 
-export async function getModrinthTeamMembers(teamId: string): Promise<{ user: { username: string; id: string } }[]> {
+async function getModrinthTeamMembers(teamId: string): Promise<{ user: { username: string; id: string } }[]> {
   return apiFetch<{ user: { username: string; id: string } }[]>('modrinth', `/team/${teamId}/members`)
 }
 
 export async function getModrinthUserProjects(userId: string): Promise<PluginBase[]> {
   const projects = await apiFetch<ModrinthProject[]>('modrinth', `/user/${userId}/projects`)
   return projects.map(projectToPluginBase)
-}
-
-export async function getModrinthCategories(): Promise<{ name: string; icon: string; project_type: string }[]> {
-  return apiFetch<{ name: string; icon: string; project_type: string }[]>('modrinth', '/tag/category')
 }

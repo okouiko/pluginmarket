@@ -7,6 +7,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store'
+import { generateHeadingSlug } from '@/utils/markdown'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -19,16 +20,6 @@ interface AskAIPanelProps {
   docTitle: string
   docContent: string
   onScrollToHeading?: (headingId: string) => void
-}
-
-// 生成标题的 slug（与 DocsPage 中保持一致）
-function generateHeadingSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .trim()
 }
 
 export function AskAIPanel({ isOpen, onClose, docTitle, docContent, onScrollToHeading }: AskAIPanelProps) {

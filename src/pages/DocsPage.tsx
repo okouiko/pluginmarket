@@ -2,186 +2,15 @@ import { useState, useMemo, useCallback, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAppStore } from '@/store'
 import { ChevronRight, ChevronDown, Book, FileText, FolderOpen, Folder, Bot } from 'lucide-react'
 import { DocsSearch } from '@/components/DocsSearch'
 import { AskAIPanel } from '@/components/AskAIPanel'
-
-// 导入所有文档
-import javaEnv from '@/assets/docs/java/Java环境配置.md?raw'
-import jvmArgs from '@/assets/docs/java/JVM启动参数.md?raw'
-
-import coreGuide from '@/assets/docs/core/服务端选择指南.md?raw'
-import paper from '@/assets/docs/core/paper.md?raw'
-import spigot from '@/assets/docs/core/spigot.md?raw'
-import purpur from '@/assets/docs/core/purpur.md?raw'
-import folia from '@/assets/docs/core/folia.md?raw'
-import pufferfish from '@/assets/docs/core/pufferfish.md?raw'
-import leaves from '@/assets/docs/core/leaves.md?raw'
-import forge from '@/assets/docs/core/forge.md?raw'
-import neoforge from '@/assets/docs/core/neoforge.md?raw'
-import fabric from '@/assets/docs/core/fabric.md?raw'
-import quilt from '@/assets/docs/core/quilt.md?raw'
-import mohist from '@/assets/docs/core/mohist.md?raw'
-import catserver from '@/assets/docs/core/catserver.md?raw'
-import arclight from '@/assets/docs/core/arclight.md?raw'
-import banner from '@/assets/docs/core/banner.md?raw'
-import bungeecord from '@/assets/docs/core/bungeecord.md?raw'
-import velocity from '@/assets/docs/core/velocity.md?raw'
-import geyser from '@/assets/docs/core/geyser.md?raw'
-
-import configPermission from '@/assets/docs/config/权限管理.md?raw'
-import configWorld from '@/assets/docs/config/世界管理.md?raw'
-import configPerformance from '@/assets/docs/config/性能优化.md?raw'
-
-import networkOverview from '@/assets/docs/network/01-概述与前置知识.md?raw'
-import networkIPv4 from '@/assets/docs/network/02-IPv4公网开服.md?raw'
-import networkIPv6 from '@/assets/docs/network/03-IPv6公网开服.md?raw'
-import networkCloud from '@/assets/docs/network/04-云服务器开服.md?raw'
-import networkDomain from '@/assets/docs/network/05-域名绑定与安全.md?raw'
-import networkFRP from '@/assets/docs/network/FRP内网穿透.md?raw'
-import networkP2P from '@/assets/docs/network/P2P联机.md?raw'
-
-import opsLinux from '@/assets/docs/ops/Linux运维.md?raw'
-import opsWindows from '@/assets/docs/ops/Windows运维.md?raw'
-import opsBackup from '@/assets/docs/ops/备份与恢复.md?raw'
-import opsSecurity from '@/assets/docs/ops/安全防护.md?raw'
-
-import pluginRecommend from '@/assets/docs/plugins/插件推荐.md?raw'
-import pluginAntiCheat from '@/assets/docs/plugins/反作弊.md?raw'
-
-import modRecommend from '@/assets/docs/mods/模组推荐.md?raw'
-
-import faq from '@/assets/docs/faq/常见问题.md?raw'
-
-// 文档树结构定义
-interface DocItem {
-  id: string
-  title: string
-  content?: string
-  children?: DocItem[]
-}
-
-const docsTree: DocItem[] = [
-  {
-    id: 'java',
-    title: '📚 Java 环境',
-    children: [
-      { id: 'java-env', title: 'Java 环境配置', content: javaEnv },
-      { id: 'jvm-args', title: 'JVM 启动参数', content: jvmArgs },
-    ],
-  },
-  {
-    id: 'core',
-    title: '📚 服务端核心',
-    children: [
-      { id: 'core-guide', title: '服务端选择指南', content: coreGuide },
-      {
-        id: 'core-plugin',
-        title: '📁 插件端',
-        children: [
-          { id: 'paper', title: 'Paper', content: paper },
-          { id: 'spigot', title: 'Spigot', content: spigot },
-          { id: 'purpur', title: 'Purpur', content: purpur },
-          { id: 'folia', title: 'Folia', content: folia },
-          { id: 'pufferfish', title: 'Pufferfish', content: pufferfish },
-          { id: 'leaves', title: 'Leaves', content: leaves },
-        ],
-      },
-      {
-        id: 'core-mod',
-        title: '📁 模组端',
-        children: [
-          { id: 'forge', title: 'Forge', content: forge },
-          { id: 'neoforge', title: 'NeoForge', content: neoforge },
-          { id: 'fabric', title: 'Fabric', content: fabric },
-          { id: 'quilt', title: 'Quilt', content: quilt },
-        ],
-      },
-      {
-        id: 'core-hybrid',
-        title: '📁 混合端',
-        children: [
-          { id: 'mohist', title: 'Mohist', content: mohist },
-          { id: 'catserver', title: 'CatServer', content: catserver },
-          { id: 'arclight', title: 'Arclight', content: arclight },
-          { id: 'banner', title: 'Banner', content: banner },
-        ],
-      },
-      {
-        id: 'core-proxy',
-        title: '📁 代理端',
-        children: [
-          { id: 'bungeecord', title: 'BungeeCord', content: bungeecord },
-          { id: 'velocity', title: 'Velocity', content: velocity },
-        ],
-      },
-      {
-        id: 'core-cross',
-        title: '📁 跨平台',
-        children: [
-          { id: 'geyser', title: 'Geyser', content: geyser },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'config',
-    title: '📚 服务器配置',
-    children: [
-      { id: 'config-permission', title: '权限管理', content: configPermission },
-      { id: 'config-world', title: '世界管理', content: configWorld },
-      { id: 'config-performance', title: '性能优化', content: configPerformance },
-    ],
-  },
-  {
-    id: 'network',
-    title: '📚 网络配置',
-    children: [
-      { id: 'network-overview', title: '概述与前置知识', content: networkOverview },
-      { id: 'network-ipv4', title: 'IPv4 公网开服', content: networkIPv4 },
-      { id: 'network-ipv6', title: 'IPv6 公网开服', content: networkIPv6 },
-      { id: 'network-cloud', title: '云服务器开服', content: networkCloud },
-      { id: 'network-domain', title: '域名绑定与安全', content: networkDomain },
-      { id: 'network-frp', title: 'FRP 内网穿透', content: networkFRP },
-      { id: 'network-p2p', title: 'P2P 联机', content: networkP2P },
-    ],
-  },
-  {
-    id: 'ops',
-    title: '📚 运维管理',
-    children: [
-      { id: 'ops-linux', title: 'Linux 运维', content: opsLinux },
-      { id: 'ops-windows', title: 'Windows 运维', content: opsWindows },
-      { id: 'ops-backup', title: '备份与恢复', content: opsBackup },
-      { id: 'ops-security', title: '安全防护', content: opsSecurity },
-    ],
-  },
-  {
-    id: 'plugins',
-    title: '📚 插件',
-    children: [
-      { id: 'plugin-recommend', title: '插件推荐', content: pluginRecommend },
-      { id: 'plugin-anticheat', title: '反作弊', content: pluginAntiCheat },
-    ],
-  },
-  {
-    id: 'mods',
-    title: '📚 模组',
-    children: [
-      { id: 'mod-recommend', title: '模组推荐', content: modRecommend },
-    ],
-  },
-  {
-    id: 'faq',
-    title: '📚 常见问题',
-    children: [
-      { id: 'faq-main', title: 'FAQ', content: faq },
-    ],
-  },
-]
+import { docsTree, type DocItem } from '@/data/docs'
+import { buildHeadingIdMap, generateHeadingSlug } from '@/utils/markdown'
 
 // 递归查找文档内容
 function findDocContent(tree: DocItem[], id: string): string | null {
@@ -216,7 +45,7 @@ function getAllDocsFlat(tree: DocItem[], path: string[] = []): { id: string; tit
   const result: { id: string; title: string; content: string; path: string[] }[] = []
   
   for (const item of tree) {
-    const currentPath = [...path, item.title.replace(/^📚\s*/, '')]
+    const currentPath = [...path, item.title.replace(/^(📚|📁)\s*/, '')]
     
     if (item.content) {
       result.push({
@@ -247,14 +76,9 @@ function getFirstDocId(tree: DocItem[]): string | null {
   return null
 }
 
-// 生成标题的 slug（用于锚点 id）
-function generateHeadingSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .trim()
+type HeadingProps = {
+  children?: React.ReactNode
+  node?: { position?: { start: { line: number } } }
 }
 
 // 侧边栏树节点组件
@@ -348,6 +172,7 @@ export default function DocsPage() {
 
   const content = useMemo(() => findDocContent(docsTree, selectedId), [selectedId])
   const docTitle = useMemo(() => findDocTitle(docsTree, selectedId) || '文档', [selectedId])
+  const headingIds = useMemo(() => buildHeadingIdMap(content ?? ''), [content])
   
   // 获取所有文档的回调函数
   const getAllDocs = useCallback(() => getAllDocsFlat(docsTree), [])
@@ -377,6 +202,13 @@ export default function DocsPage() {
       })
     }
   }, [])
+
+  // 标题 id 由文档内容预生成，同名标题自动去重
+  const resolveHeadingId = (node: HeadingProps['node'], children: React.ReactNode) => {
+    const line = node?.position?.start.line
+    const id = line !== undefined ? headingIds.get(line) : undefined
+    return id ?? generateHeadingSlug(String(children)) ?? 'section'
+  }
 
   // 处理标题跳转
   const handleScrollToHeading = useCallback((headingId: string) => {
@@ -418,27 +250,19 @@ export default function DocsPage() {
         </code>
       )
     },
-    h1({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h1 id={id}>{children}</h1>
+    h1({ children, node }: HeadingProps) {
+      return <h1 id={resolveHeadingId(node, children)}>{children}</h1>
     },
-    h2({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h2 id={id}>{children}</h2>
+    h2({ children, node }: HeadingProps) {
+      return <h2 id={resolveHeadingId(node, children)}>{children}</h2>
     },
-    h3({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h3 id={id}>{children}</h3>
+    h3({ children, node }: HeadingProps) {
+      return <h3 id={resolveHeadingId(node, children)}>{children}</h3>
     },
-    h4({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h4 id={id}>{children}</h4>
+    h4({ children, node }: HeadingProps) {
+      return <h4 id={resolveHeadingId(node, children)}>{children}</h4>
     },
-  }), [darkMode])
+  }), [darkMode, headingIds])
 
   const handleToggle = (id: string) => {
     setExpandedIds((prev) => {
@@ -530,7 +354,7 @@ export default function DocsPage() {
               >
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeRaw]}
+                  rehypePlugins={[rehypeRaw, rehypeSanitize]}
                   components={markdownComponents}
                 >
                   {content}

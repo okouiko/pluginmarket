@@ -52,9 +52,7 @@ jobs:
 
       - name: Install npm dependencies
         shell: bash
-        run: |
-          rm -f package-lock.json
-          npm install
+        run: npm ci
 
       - name: Build Tauri app
         run: npx tauri build --target ${{ matrix.target }}

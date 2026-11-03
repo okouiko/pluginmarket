@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { PluginBase, Platform, Favorite, AppSettings, AIModelConfig, AIRoleAssignment, AIRole } from '@/types'
+import type { PluginBase, Platform, Favorite, AIModelConfig, AIRoleAssignment, AIRole } from '@/types'
+import { loadModelsWithMigration, saveSecureModels, clearSecureModels } from '@/services/secure-storage'
 
 const STORAGE_KEY = 'mc-plugin-market'
 
@@ -14,6 +15,20 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 
 function saveToStorage(key: string, value: unknown) {
   localStorage.setItem(`${STORAGE_KEY}-${key}`, JSON.stringify(value))
+}
+
+// 模型配置包含 API Key，统一加密持久化，避免明文写入 localStorage
+let modelsSaveChain: Promise<void> = Promise.resolve()
+let modelsTouched = false
+
+function saveModels(models: AIModelConfig[]) {
+  modelsTouched = true
+  modelsSaveChain = modelsSaveChain
+    .catch(() => {})
+    .then(() => saveSecureModels(models))
+    .catch((error) => {
+      console.warn('保存加密模型配置失败，API Key 仅在当前会话有效', error)
+    })
 }
 
 // 默认模型配置
@@ -111,6 +126,10 @@ interface AppState {
   corsProxy: string
   setCorsProxy: (url: string) => void
 
+  // AI 请求代理（生产 Web 环境可选中转，避免模型服务 CORS）
+  aiProxy: string
+  setAiProxy: (url: string) => void
+
   // 缓存
   pluginCache: Record<string, { data: PluginBase; timestamp: number }>
   cachePlugin: (plugin: PluginBase) => void
@@ -157,22 +176,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   isFavorite: (id) => get().favorites.some(f => f.plugin.id === id),
 
-  models: loadFromStorage<AIModelConfig[]>('models', defaultModels),
+  models: defaultModels,
   roleAssignments: loadFromStorage<AIRoleAssignment[]>('roleAssignments', defaultRoleAssignments),
   updateModel: (id, updates) => {
     const next = get().models.map(m => m.id === id ? { ...m, ...updates } : m)
     set({ models: next })
-    saveToStorage('models', next)
+    saveModels(next)
   },
   addModel: (model) => {
     const next = [...get().models, model]
     set({ models: next })
-    saveToStorage('models', next)
+    saveModels(next)
   },
   removeModel: (id) => {
     const next = get().models.filter(m => m.id !== id)
     set({ models: next })
-    saveToStorage('models', next)
+    saveModels(next)
   },
   setRoleAssignment: (role, modelId) => {
     const current = get().roleAssignments
@@ -193,6 +212,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCorsProxy: (url) => {
     set({ corsProxy: url })
     saveToStorage('corsProxy', url)
+  },
+
+  aiProxy: loadFromStorage<string>('aiProxy', ''),
+  setAiProxy: (url) => {
+    set({ aiProxy: url })
+    saveToStorage('aiProxy', url)
   },
 
   pluginCache: loadFromStorage<Record<string, { data: PluginBase; timestamp: number }>>('pluginCache', {}),
@@ -221,3 +246,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveToStorage('searchHistory', [])
   },
 }))
+
+// 启动时异步解密模型配置；旧版明文数据会在此迁移并删除
+void loadModelsWithMigration<AIModelConfig[]>(defaultModels).then((models) => {
+  if (Array.isArray(models) && !modelsTouched) {
+    useAppStore.setState({ models })
+  }
+})
+
+/**
+ * 重置本应用的全部本地数据（不影响同域其他应用），并清除加密模型密钥库。
+ */
+export async function resetAppData(): Promise<void> {
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && (key.startsWith(`${STORAGE_KEY}-`) || key.startsWith('ai-concurrency-'))) {
+      keysToRemove.push(key)
+    }
+  }
+  keysToRemove.forEach((key) => localStorage.removeItem(key))
+  await clearSecureModels()
+}

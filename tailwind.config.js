@@ -5,7 +5,7 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        minecraft: ['Minecraft AE', 'monospace'],
+        minecraft: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'Noto Sans SC', 'sans-serif'],
       },
       colors: {
         mc: {

@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, Heart, ExternalLink, Download, Star, User, MessageSquare, Languages, Loader2, Send, Sparkles, AlertCircle, FileText } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
-import type { PluginBase, Platform, ChatMessage } from '@/types'
+import type { PluginBase, ChatMessage } from '@/types'
 import { useAppStore } from '@/store'
+import { sanitizeHtml } from '@/utils/sanitize'
 import { getSpigetResource, getSpigetResourceDescription } from '@/services/spiget'
 import { getHangarProject, getHangarProjectDescription } from '@/services/hangar'
-import { getModrinthProject, getModrinthProjectDescription } from '@/services/modrinth'
+import { getModrinthProject } from '@/services/modrinth'
 import { formatDownloads, getPlatformName } from '@/services/search'
 import { isAIAvailable, chatCompletionStream, translateDocumentStream, describeImages } from '@/services/ai'
 import { PlatformIcon } from '@/components/PlatformIcons'
@@ -44,7 +46,11 @@ function ApiKeyWarning({ feature }: { feature: string }) {
 export default function PluginDetailPage() {
   const { platform, id, subId } = useParams<{ platform: string; id: string; subId?: string }>()
   const navigate = useNavigate()
-  const { isFavorite, addFavorite, removeFavorite, cachePlugin, getCachedPlugin } = useAppStore()
+  const isFavorite = useAppStore(s => s.isFavorite)
+  const addFavorite = useAppStore(s => s.addFavorite)
+  const removeFavorite = useAppStore(s => s.removeFavorite)
+  const cachePlugin = useAppStore(s => s.cachePlugin)
+  const getCachedPlugin = useAppStore(s => s.getCachedPlugin)
 
   const [plugin, setPlugin] = useState<PluginBase | null>(null)
   const [description, setDescription] = useState('')
@@ -64,6 +70,14 @@ export default function PluginDetailPage() {
 
   const fav = plugin ? isFavorite(plugin.id) : false
   const fullId = subId ? `${id}/${subId}` : id
+  const safeDescription = useMemo(
+    () => sanitizeHtml(description || '<p>暂无描述</p>'),
+    [description],
+  )
+  const safeTranslatedDescription = useMemo(
+    () => sanitizeHtml(translatedDesc || description || '<p>暂无描述</p>'),
+    [translatedDesc, description],
+  )
 
   useEffect(() => {
     if (platform && id) loadPlugin()
@@ -76,7 +90,10 @@ export default function PluginDetailPage() {
   async function loadPlugin() {
     setLoading(true)
     try {
-      const cacheId = `${platform}-${fullId}`
+      // 缓存写入键是 plugin.id：Hangar 为 hangar-owner-slug，其余为 <platform>-<id>
+      const cacheId = platform === 'hangar'
+        ? `hangar-${id}-${subId || ''}`
+        : `${platform}-${fullId}`
       const cached = getCachedPlugin(cacheId)
 
       let pluginData: PluginBase
@@ -84,15 +101,18 @@ export default function PluginDetailPage() {
 
       if (platform === 'spigot') {
         pluginData = cached || await getSpigetResource(fullId!)
-        desc = await getSpigetResourceDescription(fullId!)
+        // 详情接口已带描述；仅旧缓存缺少描述时才补一次请求
+        desc = pluginData.description || ''
+        if (!desc) desc = await getSpigetResourceDescription(fullId!)
       } else if (platform === 'hangar') {
         const owner = id!
         const slug = subId || ''
         pluginData = cached || await getHangarProject(owner, slug)
-        desc = await getHangarProjectDescription(owner, slug)
+        // 优先使用 pages 内容，失败时回退到已获取的项目简介
+        desc = await getHangarProjectDescription(owner, slug) || pluginData.description || ''
       } else {
         pluginData = cached || await getModrinthProject(fullId!)
-        desc = await getModrinthProjectDescription(fullId!)
+        desc = pluginData.description || ''
       }
 
       setPlugin(pluginData)
@@ -320,11 +340,11 @@ ${description.substring(0, 3000)}
             {platform === 'spigot' ? (
               <div 
                 className="spigot-html-content"
-                dangerouslySetInnerHTML={{ __html: description || '<p>暂无描述</p>' }} 
+                dangerouslySetInnerHTML={{ __html: safeDescription }}
               />
             ) : (
-              <ReactMarkdown 
-                rehypePlugins={[rehypeRaw]} 
+              <ReactMarkdown
+                rehypePlugins={[rehypeRaw, rehypeSanitize]}
                 remarkPlugins={[remarkGfm]}
                 components={{
                   // 自定义列表渲染
@@ -448,11 +468,11 @@ ${description.substring(0, 3000)}
                     {platform === 'spigot' ? (
                       <div 
                         className="spigot-html-content"
-                        dangerouslySetInnerHTML={{ __html: translatedDesc || description || '' }} 
+                        dangerouslySetInnerHTML={{ __html: safeTranslatedDescription }}
                       />
                     ) : (
-                      <ReactMarkdown 
-                        rehypePlugins={[rehypeRaw]} 
+                      <ReactMarkdown
+                        rehypePlugins={[rehypeRaw, rehypeSanitize]}
                         remarkPlugins={[remarkGfm]}
                       >
                         {translatedDesc || description || ''}

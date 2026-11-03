@@ -14,32 +14,50 @@ class ConcurrencyLimiter {
   private queue: (() => void)[] = []
   private running = 0
   private localSlots = 0 // 当前标签页持有的槽位数
-  private channel: BroadcastChannel
+  private channel: BroadcastChannel | null = null
   private storageKey: string
-  private tabId: string
+  private maxConcurrency: number
 
-  constructor(private modelId: string, private maxConcurrency: number) {
+  constructor(private modelId: string, maxConcurrency: number) {
+    this.maxConcurrency = Math.max(1, maxConcurrency)
     this.storageKey = `ai-concurrency-${modelId}`
-    this.tabId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    this.channel = new BroadcastChannel('ai-concurrency')
-    
-    // 监听其他标签页的消息
-    this.channel.onmessage = (event) => {
-      if (event.data.type === 'sync' && event.data.modelId === this.modelId) {
-        // 其他标签页请求同步，不需要特别处理
+
+    // BroadcastChannel 仅用于通知；不支持时仍可依赖 localStorage
+    try {
+      this.channel = new BroadcastChannel('ai-concurrency')
+      this.channel.onmessage = (event) => {
+        if (event.data?.type === 'sync' && event.data.modelId === this.modelId) {
+          // localStorage 是计数来源，无需额外处理
+        }
       }
+    } catch {
+      this.channel = null
     }
-    
+
     // 页面关闭时清理
     window.addEventListener('beforeunload', () => {
       this.cleanup()
     })
   }
 
+  /**
+   * 有 Web Locks 时用它串行化跨标签页的读-改-写；否则退化为原实现。
+   */
+  private withLock<T>(fn: () => T | Promise<T>): Promise<T> {
+    const locks = (navigator as any).locks as
+      | { request: <R>(name: string, callback: () => R | Promise<R>) => Promise<R> }
+      | undefined
+    if (locks?.request) {
+      return locks.request(`${this.storageKey}-lock`, fn)
+    }
+    return Promise.resolve(fn())
+  }
+
   private getGlobalCount(): number {
     try {
       const value = localStorage.getItem(this.storageKey)
-      return value ? parseInt(value, 10) : 0
+      const count = value ? parseInt(value, 10) : 0
+      return Number.isFinite(count) ? count : 0
     } catch {
       return 0
     }
@@ -52,63 +70,74 @@ class ConcurrencyLimiter {
       } else {
         localStorage.setItem(this.storageKey, count.toString())
       }
-      // 通知其他标签页
-      this.channel.postMessage({ type: 'sync', modelId: this.modelId, count })
+      this.channel?.postMessage({ type: 'sync', modelId: this.modelId, count })
     } catch {
       // 忽略 localStorage 错误
     }
   }
 
+  private async reserveSlot(): Promise<boolean> {
+    return this.withLock(() => {
+      const globalCount = this.getGlobalCount()
+      if (globalCount >= this.maxConcurrency) return false
+      this.setGlobalCount(globalCount + 1)
+      return true
+    })
+  }
+
+  private async releaseGlobalSlot(): Promise<void> {
+    await this.withLock(() => {
+      const globalCount = this.getGlobalCount()
+      this.setGlobalCount(Math.max(0, globalCount - 1))
+    })
+  }
+
   async acquire(): Promise<void> {
-    // 先检查全局并发数
-    const globalCount = this.getGlobalCount()
-    
-    // 如果全局已达上限，且不是本标签页的请求在排队，则抛出错误
-    if (globalCount >= this.maxConcurrency && this.running >= this.maxConcurrency) {
-      throw new ConcurrencyLimitError(this.maxConcurrency)
-    }
-    
-    // 本地并发控制
     if (this.running < this.maxConcurrency) {
-      // 再次检查全局计数（可能有竞态）
-      const currentGlobal = this.getGlobalCount()
-      if (currentGlobal >= this.maxConcurrency) {
+      const reserved = await this.reserveSlot()
+      if (!reserved) {
         throw new ConcurrencyLimitError(this.maxConcurrency)
       }
-      
       this.running++
       this.localSlots++
-      this.setGlobalCount(currentGlobal + 1)
       return
     }
-    
-    // 需要排队等待
+
+    // 本地并发已满，进入队列等待
     return new Promise<void>((resolve, reject) => {
       this.queue.push(() => {
-        // 排队后再次检查全局计数
-        const currentGlobal = this.getGlobalCount()
-        if (currentGlobal >= this.maxConcurrency) {
-          reject(new ConcurrencyLimitError(this.maxConcurrency))
-          return
-        }
-        
-        this.running++
-        this.localSlots++
-        this.setGlobalCount(currentGlobal + 1)
-        resolve()
+        void (async () => {
+          const reserved = await this.reserveSlot()
+          if (!reserved) {
+            reject(new ConcurrencyLimitError(this.maxConcurrency))
+          } else {
+            this.running++
+            this.localSlots++
+            resolve()
+          }
+          this.drainQueue()
+        })()
       })
     })
   }
 
   release(): void {
-    this.running--
-    this.localSlots--
-    
-    // 更新全局计数
-    const currentGlobal = this.getGlobalCount()
-    this.setGlobalCount(Math.max(0, currentGlobal - 1))
-    
-    // 处理本地队列
+    this.running = Math.max(0, this.running - 1)
+    this.localSlots = Math.max(0, this.localSlots - 1)
+
+    // 释放全局槽位后再唤醒下一个等待者
+    void this.releaseGlobalSlot().then(() => this.drainQueue())
+  }
+
+  setMaxConcurrency(maxConcurrency: number): void {
+    const normalized = Math.max(1, Math.floor(maxConcurrency))
+    if (normalized === this.maxConcurrency) return
+    this.maxConcurrency = normalized
+    this.drainQueue()
+  }
+
+  private drainQueue(): void {
+    if (this.running >= this.maxConcurrency || this.queue.length === 0) return
     const next = this.queue.shift()
     if (next) next()
   }
@@ -122,17 +151,23 @@ class ConcurrencyLimiter {
       this.running = 0
       this.queue = []
     }
-    this.channel.close()
+    this.channel?.close()
+    this.channel = null
   }
 }
 
 const limiters = new Map<string, ConcurrencyLimiter>()
 
 function getLimiter(model: AIModelConfig): ConcurrencyLimiter {
-  if (!limiters.has(model.id)) {
-    limiters.set(model.id, new ConcurrencyLimiter(model.id, model.maxConcurrency))
+  let limiter = limiters.get(model.id)
+  if (!limiter) {
+    limiter = new ConcurrencyLimiter(model.id, model.maxConcurrency)
+    limiters.set(model.id, limiter)
+  } else {
+    // 设置页修改并发上限后，下一次调用立即生效
+    limiter.setMaxConcurrency(model.maxConcurrency)
   }
-  return limiters.get(model.id)!
+  return limiter
 }
 
 // 获取指定角色的模型配置
@@ -149,7 +184,10 @@ export function isAIAvailable(role: AIRole): boolean {
 // 构建请求 URL
 function buildUrl(model: AIModelConfig): string {
   const base = model.baseUrl.replace(/\/$/, '')
-  return `${base}/chat/completions`
+  const target = `${base}/chat/completions`
+  const proxy = useAppStore.getState().aiProxy.trim()
+  // 代理约定：前缀 + encodeURIComponent(完整目标 URL)，需支持 POST 与 Authorization
+  return proxy ? `${proxy}${encodeURIComponent(target)}` : target
 }
 // 非流式调用
 export async function chatCompletion(
@@ -382,144 +420,6 @@ export async function chatWithModel(
   } finally {
     limiter.release()
   }
-}
-
-// 并发翻译多行文本（高并发优化版）
-export async function translateLines(lines: string[]): Promise<string[]> {
-  const model = getModelForRole('translate')
-  if (!model) throw new Error('未配置翻译模型')
-
-  const results: string[] = new Array(lines.length).fill('')
-  
-  // 过滤出需要翻译的行（跳过空行、纯 HTML 标签、图片等）
-  const translateTasks: { index: number; text: string }[] = []
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    
-    // 跳过空行
-    if (!line) {
-      results[i] = lines[i]
-      continue
-    }
-    
-    // 跳过纯 HTML 标签行（如 <div>, </div>, <br>, <hr> 等）
-    if (/^<\/?[a-z][^>]*>$/i.test(line)) {
-      results[i] = lines[i]
-      continue
-    }
-    
-    // 跳过图片标签
-    if (/^<img\s/i.test(line) || /!\[.*\]\(.*\)/.test(line)) {
-      results[i] = lines[i]
-      continue
-    }
-    
-    // 跳过 SVG 相关内容
-    if (/<svg|<\/svg|<path|<circle|<rect|<polygon/i.test(line)) {
-      results[i] = lines[i]
-      continue
-    }
-    
-    // 跳过纯链接行
-    if (/^\[.*\]\(.*\)$/.test(line) || /^<a\s.*<\/a>$/i.test(line)) {
-      results[i] = lines[i]
-      continue
-    }
-    
-    // 跳过代码块标记
-    if (/^```/.test(line)) {
-      results[i] = lines[i]
-      continue
-    }
-    
-    // 提取纯文本内容进行翻译
-    translateTasks.push({ index: i, text: line })
-  }
-  
-  if (translateTasks.length === 0) {
-    return results
-  }
-  
-  // 使用模型的最大并发数
-  const maxConcurrency = model.maxConcurrency
-  const limiter = getLimiter(model)
-  
-  // 并发执行所有翻译任务
-  const promises = translateTasks.map(async (task) => {
-    await limiter.acquire()
-    try {
-      // 提取文本内容（去除 HTML 标签）
-      const textOnly = task.text
-        .replace(/<[^>]+>/g, ' ')  // 移除 HTML 标签
-        .replace(/\s+/g, ' ')      // 合并空格
-        .trim()
-      
-      // 如果提取后没有实际文本，保留原内容
-      if (!textOnly || textOnly.length < 2) {
-        results[task.index] = lines[task.index]
-        return
-      }
-      
-      const translated = await chatWithModel(model, [
-        { 
-          role: 'system', 
-          content: '你是 Minecraft 插件翻译助手。将英文翻译成简体中文。只输出翻译后的文本，不要输出任何 HTML 标签、代码或解释。如果输入已经是中文或无法翻译，直接输出原文。' 
-        },
-        { role: 'user', content: textOnly },
-      ], { temperature: 0.2 })
-      
-      // 如果原文有 Markdown 格式，尝试保留
-      let finalResult = translated.trim()
-      
-      // 保留标题格式
-      const headingMatch = task.text.match(/^(#{1,6})\s/)
-      if (headingMatch) {
-        finalResult = `${headingMatch[1]} ${finalResult}`
-      }
-      
-      // 保留列表格式
-      const listMatch = task.text.match(/^(\s*[-*+]\s|\s*\d+\.\s)/)
-      if (listMatch) {
-        finalResult = `${listMatch[1]}${finalResult}`
-      }
-      
-      // 保留粗体/斜体
-      if (task.text.includes('**') && !finalResult.includes('**')) {
-        // 简单处理：如果原文有粗体，给翻译结果也加上
-        const boldMatch = task.text.match(/\*\*([^*]+)\*\*/)
-        if (boldMatch) {
-          finalResult = `**${finalResult}**`
-        }
-      }
-      
-      results[task.index] = finalResult
-    } catch (err) {
-      // 翻译失败时保留原文
-      results[task.index] = lines[task.index]
-    } finally {
-      limiter.release()
-    }
-  })
-  
-  await Promise.all(promises)
-  return results
-}
-
-// 视觉模型描述图片
-export async function describeImage(imageUrl: string): Promise<string> {
-  const model = getModelForRole('vision')
-  if (!model) throw new Error('未配置视觉模型')
-
-  return chatWithModel(model, [
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: '请详细描述这张 Minecraft 插件相关的图片内容，包括界面截图中的功能、配置项等信息。用中文回答。' },
-        { type: 'image_url', image_url: { url: imageUrl } },
-      ],
-    },
-  ], { temperature: 0.3 })
 }
 
 // 并发描述多张图片
@@ -833,7 +733,7 @@ function extractHtmlMarkdownSegments(content: string): TextSegment[] {
     let isTranslatable = true
     let textContent = trimmed
     let prefix = ''
-    let suffix = ''
+    const suffix = ''
     
     // 跳过空行
     if (!trimmed) {
@@ -996,7 +896,7 @@ Welcome to the server
         completed++
         onProgress?.(Math.round((completed / total) * 100))
       }
-    } catch (err) {
+    } catch {
       // 翻译失败时返回原文
       for (const segment of batch) {
         yield { index: segment.index, translated: segment.original }
@@ -1007,19 +907,4 @@ Welcome to the server
       limiter.release()
     }
   }
-}
-
-// 完整翻译文档（返回翻译后的完整内容）
-export async function translateDocument(
-  content: string,
-  onProgress?: (progress: number) => void
-): Promise<string> {
-  const segments = extractTextSegments(content)
-  const results = [...segments.map(s => s.original)]
-  
-  for await (const { index, translated } of translateDocumentStream(content, onProgress)) {
-    results[index] = translated
-  }
-  
-  return results.join('\n')
 }

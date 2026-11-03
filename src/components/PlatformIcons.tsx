@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 interface IconProps {
   className?: string
   size?: number
@@ -32,8 +34,8 @@ export function ModrinthIcon({ className = '', size = 24 }: IconProps) {
 
 // Minecraft grass block icon for logo - 3D isometric style with unique IDs
 export function MinecraftBlockIcon({ className = '', size = 24 }: IconProps) {
-  // 使用唯一 ID 避免多个实例冲突
-  const id = `mc-block-${Math.random().toString(36).substr(2, 9)}`
+  // 使用 useId 保证多实例 id 唯一且渲染稳定
+  const id = `mc-block-${useId().replace(/:/g, '')}`
   
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} className={`${className} transition-transform duration-300 hover:scale-110`}>

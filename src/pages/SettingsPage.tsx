@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useAppStore } from '@/store'
+import { resetAppData, useAppStore } from '@/store'
+import { isSecureStorageSupported } from '@/services/secure-storage'
 import type { AIModelConfig, AIRole, AIProvider } from '@/types'
-import { Settings, Plus, Trash2, Eye, EyeOff, RotateCcw, Globe, Bot, Languages, Search, MessageSquare, Sparkles, AlertCircle, Key, X } from 'lucide-react'
+import { Settings, Plus, Trash2, Eye, EyeOff, RotateCcw, Globe, Bot, Languages, Search, MessageSquare, Sparkles, Key, X } from 'lucide-react'
 
 const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot }> = {
   decision: { label: '决策/提示词', desc: '最聪明的模型，用于分析和决策', icon: Sparkles },
@@ -12,7 +13,17 @@ const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot
 }
 
 export default function SettingsPage() {
-  const { models, roleAssignments, updateModel, addModel, removeModel, setRoleAssignment, corsProxy, setCorsProxy } = useAppStore()
+  const models = useAppStore(s => s.models)
+  const roleAssignments = useAppStore(s => s.roleAssignments)
+  const updateModel = useAppStore(s => s.updateModel)
+  const addModel = useAppStore(s => s.addModel)
+  const removeModel = useAppStore(s => s.removeModel)
+  const setRoleAssignment = useAppStore(s => s.setRoleAssignment)
+  const corsProxy = useAppStore(s => s.corsProxy)
+  const setCorsProxy = useAppStore(s => s.setCorsProxy)
+  const aiProxy = useAppStore(s => s.aiProxy)
+  const setAiProxy = useAppStore(s => s.setAiProxy)
+  const secureStorageSupported = isSecureStorageSupported()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [newModelOpen, setNewModelOpen] = useState(false)
   const [newModel, setNewModel] = useState<Partial<AIModelConfig>>({
@@ -48,9 +59,9 @@ export default function SettingsPage() {
     setNewModel({ provider: 'openai-compatible', model: '', name: '', apiKey: '', baseUrl: '', maxConcurrency: 5, maxContext: 8000, enabled: true })
   }
 
-  const resetDefaults = () => {
+  const resetDefaults = async () => {
     if (confirm('确定要重置所有设置为默认值吗？')) {
-      localStorage.clear()
+      await resetAppData()
       window.location.reload()
     }
   }
@@ -80,7 +91,23 @@ export default function SettingsPage() {
         />
       </section>
 
-      {/* AI Models */}
+      {/* AI Proxy */}
+      <section className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-5 mb-6">
+        <h2 className="font-minecraft text-sm font-medium mb-3 flex items-center gap-2 text-gray-800 dark:text-dark-text">
+          <Globe className="w-4 h-4 text-mc-green" />
+          AI 请求代理
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-dark-text-secondary mb-3">
+          可选。在线版若模型服务被 CORS 拦截，可填写支持 POST 与 Authorization 的中转前缀；留空则直连模型服务。
+        </p>
+        <input
+          type="text"
+          value={aiProxy}
+          onChange={(e) => setAiProxy(e.target.value)}
+          placeholder="https://your-proxy.example.com/?url="
+          className="w-full px-3 py-2 rounded-lg border border-mc-border dark:border-dark-border bg-white dark:bg-dark-bg text-sm text-gray-800 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-mc-green"
+        />
+      </section>
       <section className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-5 mb-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-minecraft text-sm font-medium flex items-center gap-2 text-gray-800 dark:text-dark-text">
@@ -102,6 +129,11 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+        <p className="text-xs text-gray-500 dark:text-dark-text-secondary mb-3">
+          {secureStorageSupported
+            ? 'API Key 仅保存在本机，并使用 AES-GCM 加密后存入浏览器存储。'
+            : '当前环境不支持 Web Crypto，API Key 仅在本次会话内有效，不会持久化。'}
+        </p>
 
         {/* New model dialog - AT THE TOP */}
         {newModelOpen && (
