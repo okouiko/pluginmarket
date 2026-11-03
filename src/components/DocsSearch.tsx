@@ -31,8 +31,8 @@ function stripMarkdown(text: string): string {
     .replace(/^[\s]*[-*+]\s+/gm, '')
     // 移除有序列表标记 1.
     .replace(/^[\s]*\d+\.\s+/gm, '')
-    // 移除表格分隔符行 |---|---|
-    .replace(/^\|[-:\s|]+\|$/gm, '')
+    // 移除表格分隔符行 |---|---|（字符类改用 alternation，避免被 Tailwind 误识别为任意属性）
+    .replace(/^\|(?:\s|:|-|\|)*\|$/gm, '')
     // 移除表格单元格的 | 符号，保留内容
     .replace(/\|/g, ' ')
     // 移除 HTML 标签
