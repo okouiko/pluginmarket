@@ -1,36 +1,46 @@
 # 07 · 组件说明
 
-组件目录：[src/components/](../../src/components)。其中 `SearchBar`、`DocsSearch`、`AskAIPanel` 承载了较多业务逻辑，是当前架构中“组件层偏重”的主要来源。
+组件目录：[src/components/](../../src/components)。`SearchBar` 与 `DocsSearch` 已把展示层拆到 `SearchAgentPanel`、`DocsSearchResults`，业务逻辑仍保留在组件层。
 
 ## 1. 组件总览
 
 | 组件 | 文件 | 行数 | 职责 | 主要依赖 |
 | --- | --- | --- | --- | --- |
 | `Header` | [Header.tsx](../../src/components/Header.tsx) | 129 | 顶部导航、主题切换、移动端菜单、GitHub 入口 | Store、Router、lucide、`MinecraftBlockIcon` |
-| `SearchBar` | [SearchBar.tsx](../../src/components/SearchBar.tsx) | 712 | 普通搜索、搜索历史、AI Agent 搜索、插件文档匹配 | Store、`searchAll`、`chatCompletionWithTools`、`src/data/docs.ts`、Router、Markdown |
-| `DocsSearch` | [DocsSearch.tsx](../../src/components/DocsSearch.tsx) | 492 | 文档普通检索、AI 文档检索、结果下拉 | `chatCompletionWithTools`、`src/data/docs.ts`、react-markdown |
-| `AskAIPanel` | [AskAIPanel.tsx](../../src/components/AskAIPanel.tsx) | 367 | 当前文档的 AI 问答、流式输出、中止、标题跳转 | `chatCompletionStream`、Store、SyntaxHighlighter |
-| `PluginCard` | [PluginCard.tsx](../../src/components/PluginCard.tsx) | 137 | 插件卡片、收藏菜单、跳转详情 | Store、`formatDownloads`、`PlatformIcon` |
+| `SearchBar` | [SearchBar.tsx](../../src/components/SearchBar.tsx) | 521 | 普通搜索、搜索历史、AI Agent 编排、插件文档匹配 | Store、`searchAll`、`chatCompletionWithTools`、`src/data/docs.ts`、Router |
+| `SearchAgentPanel` | [SearchAgentPanel.tsx](../../src/components/SearchAgentPanel.tsx) | 225 | AI 搜索对话、步骤、结果插件网格、追问输入 | Markdown、Router、类型层 |
+| `DocsSearch` | [DocsSearch.tsx](../../src/components/DocsSearch.tsx) | 351 | 文档普通检索、AI 文档检索 | `chatCompletionWithTools`、`src/data/docs.ts` |
+| `DocsSearchResults` | [DocsSearchResults.tsx](../../src/components/DocsSearchResults.tsx) | 170 | 检索结果下拉、AI 回答、推荐文档 | Markdown、`utils/markdown` |
+| `AskAIPanel` | [AskAIPanel.tsx](../../src/components/AskAIPanel.tsx) | 358 | 当前文档的 AI 问答、流式输出、中止、标题跳转 | `chatCompletionStream`、Store、SyntaxHighlighter |
+| `FilterPanel` | [FilterPanel.tsx](../../src/components/FilterPanel.tsx) | 191 | 分类/服务端/下载量/排序筛选面板 | `services/filters` |
+| `PluginCard` | [PluginCard.tsx](../../src/components/PluginCard.tsx) | 141 | 插件卡片、收藏菜单、跳转详情 | Store、`formatDownloads`、`PlatformIcon` |
 | `PlatformToggle` | [PlatformToggle.tsx](../../src/components/PlatformToggle.tsx) | 37 | 三平台启用开关 | Store、`PlatformIcon` |
-| `PlatformIcons` | [PlatformIcons.tsx](../../src/components/PlatformIcons.tsx) | 107 | Spigot/Hangar/Modrinth/Minecraft 方块 SVG 与选择器 | 无 |
+| `PlatformIcons` | [PlatformIcons.tsx](../../src/components/PlatformIcons.tsx) | 109 | Spigot/Hangar/Modrinth/Minecraft 方块 SVG 与选择器 | React `useId` |
 
 ```mermaid
 flowchart LR
     Header["Header"] --> Icons["PlatformIcons"]
     Card["PluginCard"] --> Icons
     Toggle["PlatformToggle"] --> Icons
-    SearchBar["SearchBar"] --> AI["services/ai"]
+    SearchBar["SearchBar"] --> AgentPanel["SearchAgentPanel"]
+    SearchBar --> AI["services/ai"]
     SearchBar --> Search["services/search"]
-    DocsSearch["DocsSearch"] --> AI
+    DocsSearch["DocsSearch"] --> Results["DocsSearchResults"]
+    DocsSearch --> AI
+    Results --> MD["utils/markdown"]
     AskAI["AskAIPanel"] --> AI
+    AskAI --> MD
     AskAI --> Store["store"]
     Card --> Store
     Toggle --> Store
     Header --> Store
     SearchBar --> Store
+    Filter["FilterPanel"] --> Filters["services/filters"]
     DocsPage["DocsPage"] --> DocsSearch
     DocsPage --> AskAI
+    DocsPage --> MD
     MainPage["MainPage"] --> SearchBar
+    MainPage --> Filter
     MainPage --> Toggle
     MainPage --> Card
 ```
@@ -83,7 +93,7 @@ interface Props {
 | `onSearch` | 提供时由父组件处理搜索（`MainPage`）；未提供时导航到 `/browse?<params>` |
 | `initialQuery` | 输入框初始值，`MainPage` 传入 URL 的 `q` |
 
-### 3.2 本地类型
+### 3.2 筛选类型
 
 ```ts
 export interface SearchFilters {
@@ -94,7 +104,7 @@ export interface SearchFilters {
 }
 ```
 
-与 `types/index.ts` 中的 `SearchFilters` **不是同一类型**，后者未被使用。
+`SearchFilters` 已迁到 `types/index.ts`（[L157-L162](../../src/types/index.ts#L157-L162)），由 `SearchBar` 产出、`MainPage` 消费。
 
 ### 3.3 状态
 
@@ -160,7 +170,7 @@ flowchart TD
     J -->|无 toolCall 但有文本| P["agentState = asking<br/>显示文本"]
 ```
 
-关键实现细节（[L170-L451](../../src/components/SearchBar.tsx#L170-L451)）：
+关键实现细节（`runAgent` 位于 [SearchBar.tsx#L125-L416](../../src/components/SearchBar.tsx#L125-L416)）：
 
 - **文档匹配是硬编码关键词**：只有“权限/经济/传送/保护/管理/基础”命中 `插件推荐.md`，“作弊/反作弊/外挂/anticheat/cheat”命中 `反作弊.md`；其他查询不读文档。
 - 文档只取前 3000 字符注入 system prompt，避免 token 过多。
@@ -174,20 +184,20 @@ flowchart TD
 
 - 聚焦时若历史非空且非 AI 模式，显示前 8 条历史；`onBlur` 延迟 200ms 关闭。
 - 历史通过 Store `addSearchHistory` 写入，最多 20 条、去重。
-- Agent 面板：
+- Agent 面板已拆到 `SearchAgentPanel`：
   - 头部“AI 搜索助手”与关闭按钮。
   - 消息气泡；assistant 可展示 `steps` 中的阅读/搜索进度、结果插件网格。
   - `asking` 状态显示追问输入框。
   - `searching` / `reading` / `analyzing` 显示底部加载提示。
-  - `done` 显示“搜索完成，共搜索了 N 个关键词”和“查看更多结果”，点击执行 `handleSearch(keywords.join(' '), filters)`。
+  - `done` 显示“搜索完成，共搜索了 N 个关键词”和“查看更多结果”，通过 `onViewMore` 回调执行 `handleSearch(keywords.join(' '), filters)`。
+- `SearchBar` 只保留状态与 Agent 逻辑，展示层通过 props 驱动 `SearchAgentPanel`。
 - 输入框在 `agentState !== 'idle'` 时禁用；AI 按钮在非 idle 时先 `resetAgent` 再切换。
 
 ### 3.8 已知限制
 
 - 文档匹配逻辑不可扩展，新增文档需要修改 `if` 条件。
-- `filters` 只在“查看更多结果”时使用，`MainPage` 不消费这些 URL 参数。
+- `filters` 会写入 URL 的 `category` / `server` / `version`，`MainPage` 已消费并同步到筛选状态。
 - Agent 只执行一轮工具，不支持多轮追问后的再搜索（追问后会重新 `runAgent`，但历史包含 assistant 文本）。
-- `searchAll` 的分页/排序缺陷会传递到 Agent 结果。
 
 ## 4. `DocsSearch`
 
@@ -205,7 +215,7 @@ interface DocsSearchProps {
 
 ### 4.2 普通搜索评分
 
-`performNormalSearch(searchQuery)`（[L279-L330](../../src/components/DocsSearch.tsx#L279-L330)）：
+`performNormalSearch(searchQuery)`（[L118-L212](../../src/components/DocsSearch.tsx#L118-L212)）：
 
 1. 大小写不敏感；
 2. 标题包含：`+10`；
@@ -237,7 +247,7 @@ interface DocsSearchProps {
 - 解析 `results` 后两次匹配：
   1. 用 `文档父路径/标题` 与 `doc_path` 做包含匹配；
   2. 通过 `resolveDocEntry(doc_path)` 直接解析文档，失败则丢弃该推荐。
-- 无法匹配的推荐被过滤；AI 回答（`summary`）支持 Markdown，标题可点击跳转。
+- 无法匹配的推荐被过滤；AI 回答（`summary`）与推荐文档渲染在 `DocsSearchResults`，标题使用 `utils/markdown` 的 `generateHeadingSlug` 跳转。
 
 ### 4.4 状态与交互
 
@@ -256,6 +266,7 @@ interface DocsSearchProps {
 - 点击外部关闭。
 - 清空按钮重置所有状态。
 - AI 未配置时仍可切换模式，但显示黄色提示。
+- 普通结果、AI 回答、错误与空态统一由 `DocsSearchResults` 渲染。
 
 ### 4.5 已知限制
 
@@ -302,7 +313,7 @@ interface AskAIPanelProps {
 - 卸载时 abort。
 - 手动清空按钮 abort 并重置。
 - Enter 发送（`Shift+Enter` 换行）。
-- AI 回答中的 `h1/h2/h3` 可点击，点击后调用 `onScrollToHeading(slug)`，由 `DocsPage` 滚动到文档对应锚点。
+- AI 回答中的 `h1/h2/h3` 可点击，点击后调用 `onScrollToHeading(generateHeadingSlug(text))`，由 `DocsPage` 滚动到文档对应锚点。
 - 代码块用 `SyntaxHighlighter`，主题跟随 `darkMode`。
 - `isOpen === false` 时返回 `null`，不会保留对话状态（重新打开会重新初始化）。
 
@@ -321,6 +332,7 @@ interface AskAIPanelProps {
 ```ts
 interface Props {
   plugin: PluginBase
+  favoritePlugin?: PluginBase // 收藏时保存的原始数据
 }
 ```
 
@@ -347,7 +359,7 @@ const platformBgColors = {
 
 ### 6.3 注意
 
-- 卡片显示的是传入的 `plugin`；`MainPage` 在开启 AI 翻译时会传入改写后的 `name/tag`，收藏时会把 **译文** 一并存入收藏。
+- 卡片显示的是传入的 `plugin`；`MainPage` 在开启 AI 翻译时会传入改写后的 `name/tag`，同时通过 `favoritePlugin` 传入原始数据，收藏保存的是 **原文**。
 - 收藏快照不会自动更新。
 
 ## 7. `PlatformToggle`
@@ -382,12 +394,12 @@ interface IconProps {
 
 ### 8.3 实现细节
 
-- `MinecraftBlockIcon` 用 `Math.random()` 生成渐变 id，避免多实例 SVG 定义冲突；每次渲染 id 变化，会增加无意义的重渲染/内存开销，但解决了视觉冲突。
+- `MinecraftBlockIcon` 使用 React `useId()`（去掉冒号）生成渐变 id，保证多实例唯一且每次渲染稳定。
 - 图标全部为内联 SVG，无外部图片依赖。
 
 ## 9. 组件层维护建议
 
-1. **拆分重业务组件**：`SearchBar` 的 Agent 逻辑可抽到 `services/agent-search.ts`，`DocsSearch` 的评分与映射可抽到 `services/docs-search.ts`，`AskAIPanel` 的会话管理可抽 Hook。
+1. **继续拆分展示层**：`AgentPreset` 仍约 1000 行，可把消息列表与输入区拆为独立组件。
 2. **统一错误提示**：目前各组件各自处理 `ConcurrencyLimitError`，可提供共享的 `AIMessage` / `AIErrorNotice` 组件。
 3. **统一 AI 可用性刷新**：`isAIAvailable` 在多个组件用空依赖 `useMemo`，设置变更后不刷新；建议订阅 Store 的 `models` / `roleAssignments`。
 4. **复用平台视觉映射**：`PluginCard`、`PlatformToggle`、`PluginDetailPage` 各有一套颜色/名称映射，可收敛到 `PlatformIcons` 或 `services/search`。

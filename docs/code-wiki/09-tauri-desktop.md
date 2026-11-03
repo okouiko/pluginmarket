@@ -168,11 +168,11 @@ export function isTauri(): boolean {
   return !!(window as any).__TAURI__ || !!(window as any).__TAURI_INTERNALS__
 }
 
-// GuidePage.tsx
+// pages/guide/env.ts
 const isTauri = '__TAURI__' in window || '__TAURI_INTERNALS__' in window
 ```
 
-Tauri 2 默认注入 `__TAURI_INTERNALS__`，`withGlobalTauri` 配置才会注入 `__TAURI__`。两处判定现已同时兼容二者，避免桌面端被误判为 Web。
+Tauri 2 默认注入 `__TAURI_INTERNALS__`，`withGlobalTauri` 配置才会注入 `__TAURI__`。`api-base` 与 `pages/guide/env.ts` 均兼容二者，避免桌面端被误判为 Web。
 
 ### 4.2 API 直连
 
@@ -241,7 +241,7 @@ flowchart LR
 | CSP | `tauri.conf.json` | 生产/开发分别配置 CSP，限制脚本、样式、图片、连接与框架来源 |
 | FS 范围 | `capabilities/default.json` | 只读、仅 HOME/DOCUMENT/DESKTOP/DOWNLOAD，不再有 `"**"` |
 | Shell | Rust / Cargo / capabilities / 前端 | 完整移除 shell 插件、权限与回退代码 |
-| 目录穿越 | `GuidePage.resolveServerPath` | 拒绝绝对路径与越界 `..`，所有工具只能访问 serverPath 子目录 |
+| 目录穿越 | `pages/guide/AgentPreset.tsx` 的 `resolveServerPath` | 拒绝绝对路径与越界 `..`，所有工具只能访问 serverPath 子目录 |
 | API Key | `services/secure-storage.ts` | AES-GCM 加密，密钥不可导出并存入 IndexedDB；非安全上下文仅内存 |
 | 外部链接 | 多处 | `target="_blank"` 配合 `rel="noopener noreferrer"` |
 

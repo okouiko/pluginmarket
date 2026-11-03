@@ -7,10 +7,10 @@
 | 分组 | 类型 | 用途 |
 | --- | --- | --- |
 | 统一领域模型 | `Platform`、`PluginBase` | UI 与业务层唯一插件契约 |
-| 上游 API 模型 | `SpigetResource`、`SpigetCategory`、`SpigetAuthor`、`HangarProject`、`HangarSearchResult`、`ModrinthProject`、`ModrinthSearchResult`、`ModrinthSearchHit` | 描述第三方接口原始结构 |
+| 上游 API 模型 | `SpigetResource`、`HangarProject`、`HangarSearchResult`、`ModrinthProject`、`ModrinthSearchResult`、`ModrinthSearchHit` | 描述第三方接口原始结构 |
 | AI 配置 | `AIProvider`、`AIModelConfig`、`AIRole`、`AIRoleAssignment` | 模型与角色分配 |
-| 对话协议 | `ChatMessage`、`ChatContentPart`、`AIStreamChunk` | OpenAI 兼容消息格式 |
-| 应用数据 | `Favorite`、`AppSettings`、`SearchFilters` | 收藏、设置、筛选（部分类型当前未被使用） |
+| 对话协议 | `ChatMessage`、`ChatContentPart` | OpenAI 兼容消息格式 |
+| 应用数据 | `Favorite`、`SearchFilters` | 收藏快照、AI 搜索产出的筛选条件 |
 
 ## 2. 统一插件模型 `PluginBase`
 
@@ -23,7 +23,7 @@
 | `platform` | `Platform` | 是 | 平台枚举 | `spigot` / `hangar` / `modrinth` |
 | `name` | `string` | 是 | 插件名 | Spiget `name`、Hangar `name`、Modrinth `title` |
 | `tag` | `string` | 是 | 一句话简介 | Spiget `tag`、其余 `description` |
-| `description` | `string?` | 否 | 完整描述（HTML/Markdown） | Spigot 详情单独获取；Modrinth `body` |
+| `description` | `string?` | 否 | 完整描述（HTML/Markdown） | Spigot 详情接口（已含 Base64 描述）；Hangar pages；Modrinth `body` |
 | `author` | `string` | 是 | 作者 | Spigot `author.name` / `contributors`；Hangar owner；Modrinth `author` |
 | `authorId` | `string?` | 否 | 作者 ID，用于作者页路由 | Spigot author id；Hangar owner |
 | `icon` | `string?` | 否 | 图标 URL | Spigot 拼接 spigotmc.org；Hangar `avatarUrl`；Modrinth `icon_url` |
@@ -52,32 +52,30 @@
 | `rating` | `rating.average` | 未使用（有 `stars` 但未映射） | 未使用（有 `followers`） |
 | `categories` | **空数组**（未从 `category` 映射） | `category + settings.tags` | `categories` |
 | `version` | `testedVersions` 最后一个 | 未设置 | 搜索命中 `versions` 最后一项；详情未设置 |
-| `author` | `author.name` 或 `contributors` | `namespace.owner` | 搜索命中 `author`；**详情为空字符串** |
+| `author` | `author.name` 或 `contributors` | `namespace.owner` | 搜索命中 `author`；详情通过团队接口补全 |
 | `images` | 未设置 | 未设置 | `gallery` |
-| `description` | 详情接口单独获取 | pages 端点 + 详情兜底 | `body` |
+| `description` | 详情接口直接返回 | pages 单次请求 + 项目简介回退 | `body` |
 
-这些差异会导致：Spigot 卡片没有分类标签，Hangar 没有星级，Modrinth 详情页作者链接可能指向空作者。详见 [11](11-conventions-and-known-issues.md)。
+这些差异会导致：Spigot 卡片没有分类标签，Hangar 没有星级，Modrinth 详情在团队接口失败时仍可能缺少作者。详见 [11](11-conventions-and-known-issues.md)。
 
 ## 3. 上游 API 类型
 
 ### 3.1 Spiget
 
 - `SpigetResource`（[L24-L50](../../src/types/index.ts#L24-L50)）：包含 `likes`、`file`、`testedVersions`、`links`、`rating`、`icon`、`releaseDate`/`updateDate`（秒级）、`downloads`、`external`/`premium`/`price`、`description`、`category`、`version(s)`、`author`、`reviews` 等。
-- `SpigetCategory`：`{ id, name }`。
-- `SpigetAuthor`：`{ id, name, icon? }`。
 
 适配器只消费其中一部分字段，`description` 在 Spiget 响应中是 **Base64 编码的 HTML**，需 `decodeBase64` 处理。
 
 ### 3.2 Hangar
 
-- `HangarProject`（[L64-L75](../../src/types/index.ts#L64-L75)）：`namespace.owner/slug`、`stats`（views/downloads/recent*/stars）、`category`、`avatarUrl`、`description`、`settings.tags/links`。
+- `HangarProject`（[L53-L64](../../src/types/index.ts#L53-L64)）：`namespace.owner/slug`、`stats`（views/downloads/recent*/stars）、`category`、`avatarUrl`、`description`、`settings.tags/links`。
 - `HangarSearchResult`：`pagination` + `result[]`。
 
 Hangar 的“评分”概念是 `stars`，当前未映射到 `rating`。
 
 ### 3.3 Modrinth
 
-- `ModrinthProject`（[L83-L104](../../src/types/index.ts#L83-L104)）：`slug`、`title`、`description`、`body`、`categories`、`client_side`/`server_side`、`project_type`、`downloads`、`icon_url`、`color`、`id`、`team`、`published`/`updated`、`followers`、`license`、`versions`、`gallery`。
+- `ModrinthProject`（[L72-L93](../../src/types/index.ts#L72-L93)）：`slug`、`title`、`description`、`body`、`categories`、`client_side`/`server_side`、`project_type`、`downloads`、`icon_url`、`color`、`id`、`team`、`published`/`updated`、`followers`、`license`、`versions`、`gallery`。
 - `ModrinthSearchResult`：`hits[]` + 分页信息。
 - `ModrinthSearchHit`：搜索结果精简结构，含 `project_id`、`author`、`date_modified`、`latest_version`、`gallery`。
 
@@ -91,7 +89,6 @@ Hangar 的“评分”概念是 `stars`，当前未映射到 `rating`。
 | `AIRoleAssignment` | `{ role, modelId }` | 角色到模型的绑定 |
 | `ChatMessage` | `{ role: 'user'\|'assistant'\|'system', content: string \| ChatContentPart[] }` | 支持纯文本与多模态内容 |
 | `ChatContentPart` | `{ type: 'text'\|'image_url', text?, image_url? }` | 视觉消息 |
-| `AIStreamChunk` | `{ choices: [{ delta, finish_reason? }] }` | **当前未被源码引用**，流式解析直接读取 `parsed.choices[0].delta.content` |
 
 `ToolDefinition`、`ToolCallResult`、`ToolChoice`、`JSONSchemaProperty` 不在 `types/index.ts`，而是从 [ai.ts](../../src/services/ai.ts#L195-L227) 导出（见 05）。
 
@@ -178,13 +175,13 @@ interface Favorite {
 }
 ```
 
-这意味着收藏页不依赖网络，但快照不会自动更新；平台下架或字段变更不会反映到已收藏数据。
+这意味着收藏页不依赖网络，但快照不会自动更新；平台下架或字段变更不会反映到已收藏数据。`PluginCard` 通过 `favoritePlugin` 保证收藏写入的是原始数据，而不是页面上的 AI 译文副本。
 
 ### 5.5 缓存语义
 
 - 写入：`cachePlugin(plugin)` 以 `plugin.id` 为键，记录 `{ data, timestamp }`。
 - 读取：`getCachedPlugin(id)` 在超过 **1 小时**（`3600000ms`）时返回 `undefined`，但不会主动删除旧记录。
-- 缓存键与实际调用存在不一致：`PluginDetailPage` 使用 `${platform}-${fullId}` 查询，而 Store 用 `plugin.id` 写入。Spigot/Modrinth 恰好一致，Hangar 的 `hangar-owner/slug` 与 `hangar-owner-slug` 不一致，导致 Hangar 缓存无法命中。详见 [11](11-conventions-and-known-issues.md#3-已知问题清单)。
+- 读取键与 Store 写入键一致：`PluginDetailPage` 按 `plugin.id` 规则生成缓存键（Hangar 为 `hangar-<owner>-<slug>`），三个平台均可命中。Spigot 详情现在一次请求即包含描述，缓存也会保存 `description`。
 
 ### 5.6 使用模式
 
@@ -196,21 +193,19 @@ const darkMode = useAppStore(s => s.darkMode)
 const { models, roleAssignments, updateModel } = useAppStore()
 ```
 
-`SettingsPage`、`MainPage`、`PluginDetailPage` 等使用整体解构，状态更新频率低，实际影响有限；`GuidePage`、`AskAIPanel` 使用选择器订阅 `darkMode`。
+`SettingsPage`、`MainPage`、`PluginDetailPage`、`PluginCard` 已改为按字段订阅选择器；`Header`、`PlatformToggle`、`SearchBar`、`FavoritesPage` 仍是整体解构，后续可按同样方式收敛。
 
 ## 6. 其他配置类型
 
 | 类型 | 定义 | 当前使用情况 |
 | --- | --- | --- |
-| `AppSettings` | `models` + `roleAssignments` + `corsProxy` + `aiProxy?` + `enabledPlatforms` | **未被源码使用**；实际字段分散在 Store |
-| `SearchFilters`（types） | `platforms`、`categories`、`version`、`sortBy`、`minDownloads` | **未被源码使用** |
-| `SearchFilters`（SearchBar） | `category`、`serverType`、`version`、`platforms` | AI 搜索与 URL 参数使用；MainPage 已消费 category/server/version 并同步到筛选状态 |
+| `SearchFilters` | `category`、`serverType`、`version`、`platforms` | 定义在 `types/index.ts`，由 `SearchBar` 产出、`MainPage` 消费并写入 URL |
 
 ### 6.1 主题与样式状态
 
 - `darkMode` 默认 `true`，切换时 Store 同步 `document.documentElement.classList`，`App.tsx#L40-L46` 在挂载/变化时再次同步。
 - Tailwind 使用 `darkMode: 'class'`，因此所有 `dark:` 变体依赖 `<html class="dark">`。
-- `index.css` 中还有 `body.dark-mode` 等历史选择器，实际主路径是 `html.dark`。
+- 暗色样式统一由 `html.dark` 驱动；`body.dark-mode` 历史选择器已移除。
 
 ## 7. 状态持久化风险
 

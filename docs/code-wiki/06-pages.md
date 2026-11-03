@@ -26,7 +26,7 @@
 
 ## 3. `MainPage`
 
-文件：[src/pages/MainPage.tsx](../../src/pages/MainPage.tsx)（574 行）
+文件：[src/pages/MainPage.tsx](../../src/pages/MainPage.tsx)（434 行，筛选面板已拆到 `FilterPanel`）
 
 ### 3.1 职责
 
@@ -105,13 +105,13 @@ flowchart TD
 - 分类、服务端、排序筛选已接入客户端过滤；搜索请求仍使用平台默认排序，返回后再按本地排序规则重排。
 - 分类/服务端过滤依赖关键词匹配，字段缺失时可能过滤掉部分相关插件。
 - 热门“换一批”的 offset 问题已修复：Hangar/Modrinth 传 0 基页码。
-- 翻译开启后每批插件都会重新请求，未做缓存；翻译失败静默保留原文。
-- `loadPopular` 的 `useCallback` 依赖包含 `translateEnabled`，切换翻译会重新拉取热门。
-- 首次挂载时两个 `useEffect` 都会调用 `loadPopular`；`handleSearch` 直接搜索的同时，`setSearchParams` 又会触发 query effect 再次搜索，存在重复请求。
+- 翻译结果通过 `translationsRef` 缓存，只对未翻译的插件发起请求；失败时静默保留原文。
+- 搜索词、平台开关与“换一批”合并到同一个 effect；`popularKeyRef` 以“平台列表 + 页码”指纹去重，StrictMode 下也只加载一次。
+- `handleSearch` 通过 `loadedQueryRef` 记录已发起的搜索词，避免 `setSearchParams` 触发 query effect 二次请求。
 
 ## 4. `PluginDetailPage`
 
-文件：[src/pages/PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx)（483 行）
+文件：[src/pages/PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx)（490 行）
 
 ### 4.1 路由参数语义
 
@@ -142,9 +142,9 @@ const fullId = subId ? `${id}/${subId}` : id
 
 1. 按平台生成与 `plugin.id` 一致的缓存键：Spigot/Modrinth 为 `<platform>-<fullId>`，Hangar 为 `hangar-<owner>-<slug>`，尝试 `getCachedPlugin(cacheId)`。
 2. 按平台分派：
-   - Spigot：`getSpigetResource(fullId)` + `getSpigetResourceDescription(fullId)`
-   - Hangar：`getHangarProject(id, subId || '')` + `getHangarProjectDescription(...)`
-   - Modrinth：`getModrinthProject(fullId)` + `getModrinthProjectDescription(fullId)`；`getModrinthProject` 会额外调用团队接口补全作者与作者 ID
+   - Spigot：`getSpigetResource(fullId)` 一次请求返回基础信息 + 描述；仅在旧缓存缺少描述时补 `getSpigetResourceDescription`
+   - Hangar：`getHangarProject(id, subId || '')` + `getHangarProjectDescription(...)`（pages 只请求一次，失败回退项目简介）
+   - Modrinth：`getModrinthProject(fullId)`；描述直接取 `project.body`，`getModrinthProject` 额外调用团队接口补全作者与作者 ID
 3. 基础信息优先使用缓存。
 4. `cachePlugin(pluginData)` 写回。
 5. 异常只 `console.error`，最终 `plugin` 为 `null` 时显示“插件未找到”。
@@ -190,7 +190,7 @@ const fullId = subId ? `${id}/${subId}` : id
 
 ## 5. `DocsPage`
 
-文件：[src/pages/DocsPage.tsx](../../src/pages/DocsPage.tsx)（392 行）
+文件：[src/pages/DocsPage.tsx](../../src/pages/DocsPage.tsx)（388 行）
 
 ### 5.1 职责
 
@@ -225,7 +225,8 @@ const fullId = subId ? `${id}/${subId}` : id
 | `findDocTitle(tree, id)` | 递归按 id 查标题 |
 | `getAllDocsFlat(tree, path)` | 扁平化所有含内容的节点，附带父级路径，供搜索用 |
 | `getFirstDocId(tree)` | 取第一个有内容的文档 id，作为初始选中 |
-| `generateHeadingSlug(text)` | 生成标题锚点：小写、保留中文/字母/数字/空格/连字符、空格转 `-` |
+| `buildHeadingIdMap(content)` | 来自 `utils/markdown.ts`：按源码行号为全部标题预生成 id，同名标题追加 `-1`/`-2` |
+| `resolveHeadingId(node, children)` | 用 react-markdown 的 `node.position.start.line` 取预生成 id，保证同名标题不冲突 |
 | `TreeNode` | 递归渲染目录，支持展开/折叠与选中 |
 
 ### 5.4 交互状态
@@ -257,20 +258,21 @@ const fullId = subId ? `${id}/${subId}` : id
 
 ## 6. `GuidePage`
 
-文件：[src/pages/GuidePage.tsx](../../src/pages/GuidePage.tsx)（1953 行，项目中最大的文件）
+入口：[src/pages/GuidePage.tsx](../../src/pages/GuidePage.tsx)（19 行，已拆分为子目录）
 
 ### 6.1 顶层结构
 
 ```text
-GuidePage
-├── PresetSelector        // 三张预设卡片
-└── PresetContent
-    ├── TranslatePreset   // 汉化配置文件
-    ├── SimpleServerPreset// 简单开服（文档驱动）
-    └── AgentPreset       // 服务器运维 Agent（仅 Tauri）
+GuidePage.tsx                    // 仅负责 activePreset 状态
+pages/guide/
+├── PresetSelector.tsx           // 三张预设卡片 + 返回按钮
+├── TranslatePreset.tsx          // 汉化配置文件
+├── SimpleServerPreset.tsx       // 简单开服（文档驱动）
+├── AgentPreset.tsx              // 服务器运维 Agent（仅 Tauri）
+├── loadDocs.ts                  // 统一 getDocContentByPath 读取
+├── env.ts                       // isTauri 双检测
+└── types.ts                     // PresetType / FileItem
 ```
-
-`PlaceholderPreset` 已定义但未被使用。
 
 | 预设 | 可用环境 | 作用 |
 | --- | --- | --- |
@@ -287,16 +289,16 @@ GuidePage
 | `handleFiles(fileList)` | 逐个 `file.text()` 读取内容，加入 `FileItem[]`（状态 `waiting`） |
 | `handleDragOver/Leave/Drop` | 拖拽上传 |
 | `removeFile(index)` | 移除文件并修正选中索引 |
-| `translateWithConcurrency(chunks, fileIndex, maxConcurrency = 200)` | 自定义信号量，最多 200 并发；每块调用 `chatCompletion('translate')`；单块失败返回原文 |
+| `translateWithConcurrency(chunks, fileIndex, maxConcurrency)` | 自定义信号量，并发数由调用方传入；每块调用 `chatCompletion('translate')`；单块失败返回原文 |
 | `splitIntoChunks(content, 15)` | 按 15 行切块 |
-| `startTranslation()` | 逐文件翻译，更新单文件与整体进度；已完成文件跳过 |
+| `startTranslation()` | 逐文件翻译，更新单文件与整体进度；已完成文件跳过；并发数取翻译模型 `maxConcurrency` |
 | `downloadFile(file)` | Blob 下载，文件名插入 `_zh` 后缀 |
 | `downloadAll()` | 下载所有已完成文件 |
 
 - 支持扩展名：`.properties`、`.yml`、`.yaml`、`.json`、`.toml`、`.conf`、`.cfg`、`.txt`。
-- 翻译前检查 `translate` 模型存在且配置 Key，否则抛出可读错误。
+- 翻译前检查 `translate` 模型存在且配置 Key；缺失时把所有未完成文件标记为失败。
 - 预览区显示翻译结果；底部有“AI 翻译不保证质量”的免责声明。
-- 注意：这里既有 200 并发的本地信号量，又经 `chatCompletion` 内部的 `ConcurrencyLimiter`，实际并发受模型 `maxConcurrency` 限制。
+- 本地信号量与 `chatCompletion` 内部的 `ConcurrencyLimiter` 使用同一个模型 `maxConcurrency`，UI 文案与实际限制一致。
 
 ### 6.3 `SimpleServerPreset`
 
@@ -371,7 +373,7 @@ GuidePage
 
 ## 7. `SettingsPage`
 
-文件：[src/pages/SettingsPage.tsx](../../src/pages/SettingsPage.tsx)（384 行）
+文件：[src/pages/SettingsPage.tsx](../../src/pages/SettingsPage.tsx)（393 行）
 
 ### 7.1 区块
 
@@ -427,10 +429,10 @@ GuidePage
 
 | 页面 | Store 字段 | 服务/组件 | 外部能力 |
 | --- | --- | --- | --- |
-| MainPage | `enabledPlatforms` | `searchAll`、三个热门函数、`translatePluginInfos`、`SearchBar`、`PlatformToggle`、`PluginCard` | 插件 API |
-| PluginDetailPage | `favorites`、`pluginCache` | 三个详情/描述函数、`chatCompletionStream`、`translateDocumentStream`、`describeImages`、`PlatformIcon` | 插件 API、LLM |
+| MainPage | `enabledPlatforms` | `searchAll`、三个热门函数、`translatePluginInfos`、`SearchBar`、`FilterPanel`、`PlatformToggle`、`PluginCard` | 插件 API |
+| PluginDetailPage | `favorites`、`pluginCache` | 三个详情函数（描述随详情返回）、`chatCompletionStream`、`translateDocumentStream`、`describeImages`、`PlatformIcon` | 插件 API、LLM |
 | DocsPage | `darkMode` | `DocsSearch`、`AskAIPanel`、`docsTree`（全部 72 篇） | 无（AI 可选） |
-| GuidePage | `darkMode`、`getModelForRole` | `chatCompletion*`、`src/data/docs.ts` 文档内容 | LLM、Tauri FS/Dialog |
+| GuidePage | `darkMode`、`getModelForRole` | `pages/guide/*`、`chatCompletion*`、`src/data/docs.ts` 文档内容 | LLM、Tauri FS/Dialog |
 | SettingsPage | `models`、`roleAssignments`、`corsProxy`、`aiProxy` | 表单、`resetAppData`、`isSecureStorageSupported` | 无 |
 | FavoritesPage | `favorites` | `PluginCard` | 无 |
 | AuthorPage | — | 三个作者函数、`PluginCard` | 插件 API |

@@ -117,12 +117,9 @@ export class ConcurrencyLimitError extends Error {
 | `chatCompletionWithTools` | `(role, messages, tools, options?: { temperature?, toolChoice? })` | 非流式 + tools | `Promise<{ content?, toolCalls? }>` | 解析 `tool_calls` 的 `arguments` JSON |
 | `chatCompletionStream` | `(role, messages, options?: { temperature?, signal? })` | 流式 | `AsyncGenerator<string>` | 逐段 `yield` 文本增量 |
 | `chatWithModel` | `(model, messages, options?: { temperature? })` | 非流式 | `Promise<string>` | 绕过角色，直接用指定模型 |
-| `translateLines` | `(lines: string[])` | 非流式并发 | `Promise<string[]>` | 按行翻译，跳过结构行 |
-| `describeImage` | `(imageUrl: string)` | 非流式 | `Promise<string>` | `vision` 角色描述单图 |
 | `describeImages` | `(imageUrls: string[])` | 非流式串行 | `Promise<string[]>` | 名称中的“并发”并未实现，实际 `for` 循环 |
 | `translatePluginInfos` | `(plugins: {id,name,tag}[])` | 非流式并发 | `Promise<Map<string, PluginTranslation>>` | 翻译名称与简介 |
 | `translateDocumentStream` | `(content, onProgress?)` | 流式分段 | `AsyncGenerator<{index, translated}>` | 文档逐段翻译 |
-| `translateDocument` | `(content, onProgress?)` | 流式分段 | `Promise<string>` | 将分段结果拼回完整文档 |
 
 ### 3.2 请求体
 
@@ -152,12 +149,12 @@ export class ConcurrencyLimitError extends Error {
 
 - Header：`Authorization: Bearer <apiKey>`。
 - 非 2xx：读取响应文本并抛 `Error("AI 调用失败: <status> <body>")`。
-- 超时、重试、代理均未实现。
+- AI 请求代理通过 Store 的 `aiProxy` 配置；请求超时与重试仍未实现。
 - 每次调用都在 `try/finally` 中 `release()`，流式生成器在消费者提前 `return` 时也会执行 `finally`（`for await ... break` 会触发）。
 
 ### 3.4 SSE 解析
 
-`chatCompletionStream` 的解析规则（[L315-L343](../../src/services/ai.ts#L315-L343)）：
+`chatCompletionStream` 的解析规则（[L320-L390](../../src/services/ai.ts#L320-L390)）：
 
 1. `TextDecoder` 逐块读取。
 2. 按 `\n` 切分，保留最后一个不完整行到 `buffer`。
@@ -181,35 +178,18 @@ export class ConcurrencyLimitError extends Error {
 
 ## 4. 翻译流水线
 
-### 4.1 `translateLines`：按行翻译
+### 4.1 `translatePluginInfos`：插件名称与简介
 
-用途：没有 UI 调用（当前主要保留给通用场景/历史实现）。流程：
-
-1. 遍历每一行，跳过：
-   - 空行；
-   - 纯 HTML 标签行；
-   - 图片标签/图片 Markdown；
-   - SVG 相关标签；
-   - 纯链接行；
-   - 代码块围栏。
-2. 其余行加入 `translateTasks`。
-3. 使用 `translate` 模型的 `maxConcurrency`，每个任务 `acquire` 后调用 `chatWithModel`（`temperature: 0.2`）。
-4. 去掉 HTML 标签后只翻译纯文本。
-5. 尝试保留 Markdown 标题、列表、粗体格式。
-6. 失败时保留原文。
-
-### 4.2 `translatePluginInfos`：插件名称与简介
-
-用于首页“AI 翻译”开关（[MainPage.tsx#L168-L184](../../src/pages/MainPage.tsx#L168-L184)）：
+用于首页“AI 翻译”开关（[MainPage.tsx#L154-L171](../../src/pages/MainPage.tsx#L154-L171)）：
 
 - 每个插件一个请求，prompt 同时包含 `name` 与 `tag`，要求按“名称: / 简介:”格式输出。
 - 解析正则 `/名称[:：]\s*(.+)/i`、`/简介[:：]\s*(.+)/i`。
 - 失败或解析失败时回退原文。
 - 返回 `Map<plugin.id, PluginTranslation>`。
 
-### 4.3 文档翻译：内容类型识别
+### 4.2 文档翻译：内容类型识别
 
-`detectContentType`（[L626-L661](../../src/services/ai.ts#L626-L661)）按以下顺序判断：
+`detectContentType`（[L526-L562](../../src/services/ai.ts#L526-L562)）按以下顺序判断：
 
 1. JSON：以 `{`/`[` 开头结尾且 `JSON.parse` 成功。
 2. YAML：存在 `key: value` 行且不含 HTML 标签。
@@ -240,7 +220,7 @@ interface TextSegment {
 }
 ```
 
-### 4.4 `translateDocumentStream`：分批翻译
+### 4.3 `translateDocumentStream`：分批翻译
 
 ```ts
 export async function* translateDocumentStream(
@@ -263,22 +243,19 @@ export async function* translateDocumentStream(
 8. 批次请求失败时，整批回退原文并继续。
 9. 每批 `finally` 释放并发槽位。
 
-`translateDocument` 将 yield 结果写回原始行数组并 `join('\n')`。
-
-### 4.5 翻译质量与限制
+### 4.4 翻译质量与限制
 
 - 按“行/段落”独立翻译，丢失跨行上下文。
 - `%%` 分隔符依赖模型严格遵守；切分数量不足时回退该段原文。
 - JSON/YAML 只翻译值，不处理嵌套结构中的键名。
 - HTML 行内标签被移除后再翻译，可能丢失内联标记。
 - 翻译失败静默回退原文，用户只看到“部分未翻译”。
-- `GuidePage` 的“汉化配置文件”另有一套实现：15 行一块、200 并发信号量、`chatCompletion('translate')`，与 `translateDocumentStream` 不同。
+- `guide/TranslatePreset` 的“汉化配置文件”另有一套实现：15 行一块、并发数取翻译模型的 `maxConcurrency`、`chatCompletion('translate')`，与 `translateDocumentStream` 不同。
 
-### 4.6 图片理解
+### 4.5 图片理解
 
-- `describeImage(imageUrl)`：`vision` 角色，prompt 要求详细描述 Minecraft 插件截图，`temperature: 0.3`。
 - `describeImages(imageUrls)`：名称暗示并发，实际 **顺序** 执行，每次 `acquire/release`；单图失败返回空串；prompt 限制 50 字。
-- 插件详情页只描述前 3 张截图（[PluginDetailPage.tsx#L140-L145](../../src/pages/PluginDetailPage.tsx#L140-L145)）。
+- 插件详情页只描述前 3 张截图（[PluginDetailPage.tsx#L150-L155](../../src/pages/PluginDetailPage.tsx#L150-L155)）。
 - 图片 URL 直接交给模型服务，要求该 URL 可被模型侧访问；Base64 data URL 在 Agent 模式中作为 `image_url.url` 传入。
 
 ## 5. Tool Calling 与 Agent
@@ -289,8 +266,8 @@ export async function* translateDocumentStream(
 | --- | --- | --- | --- | --- |
 | AI 插件搜索 | `SearchBar.tsx` | `decision` | `search_plugins`、`ask_user` | 单轮工具调用 + 前端循环执行关键词搜索 |
 | 文档 AI 检索 | `DocsSearch.tsx` | `search` | `search_docs`（强制 tool_choice） | 单轮 |
-| 简单开服指导 | `GuidePage.tsx` | `decision` | `read_docs` | 单轮：读文档后流式回答 |
-| 服务器运维 Agent | `GuidePage.tsx` | `decision` | `read_docs`、`read_server_file`、`list_server_files` | 最多 10 轮 |
+| 简单开服指导 | `guide/SimpleServerPreset.tsx` | `decision` | `read_docs` | 单轮：读文档后流式回答 |
+| 服务器运维 Agent | `guide/AgentPreset.tsx` | `decision` | `read_docs`、`read_server_file`、`list_server_files` | 最多 10 轮 |
 
 ### 5.1 AI 插件搜索工具
 
@@ -326,7 +303,7 @@ flowchart TD
 
 关键实现：
 
-- `MAX_TOOL_ITERATIONS = 10`（[GuidePage.tsx#L1436-L1439](../../src/pages/GuidePage.tsx#L1436-L1439)）。
+- `MAX_TOOL_ITERATIONS = 10`（[AgentPreset.tsx#L556-L559](../../src/pages/guide/AgentPreset.tsx#L556-L559)）。
 - 工具结果消息格式：`{ role: 'tool', tool_call_id, content }`。
 - `read_server_file` 超过 10,000 字符时只保留最后 10,000 字符。
 - `read_docs` 可一次读多篇文档，`loadDoc` 通过 `getDocContentByPath` 从统一文档目录读取。
@@ -338,7 +315,7 @@ flowchart TD
 
 ### 5.3 工具执行与本地文件
 
-`resolveServerPath` / `readServerFile` / `listServerFiles`（[GuidePage.tsx#L896-L956](../../src/pages/GuidePage.tsx#L896-L956)）：
+`resolveServerPath` / `readServerFile` / `listServerFiles`（[AgentPreset.tsx#L16-L76](../../src/pages/guide/AgentPreset.tsx#L16-L76)）：
 
 1. 非 Tauri 环境直接返回错误文案。
 2. `resolveServerPath` 将模型提供的相对路径规范化，并校验其必须位于服务器根目录内：
@@ -353,7 +330,7 @@ flowchart TD
 
 ### 5.4 文档读取
 
-- `SimpleServerPreset` 与 `AgentPreset` 使用 `loadDoc(path)`，在 `import.meta.glob('../assets/docs/**/*.md')` 的结果中按 `endsWith` 匹配。
+- `SimpleServerPreset` 与 `AgentPreset` 使用 `guide/loadDocs.ts` 的 `loadDoc(path)`，直接调用 `getDocContentByPath`，不再维护第二套 glob。
 - 文档路径必须与 `src/data/docs.ts` 的 `DOC_CATALOG` 相对路径一致（如 `core/paper.md`）。
 - 文档全文直接进入 system prompt，没有长度上限；Agent 模式可能因此占用大量上下文，随后触发压缩。
 

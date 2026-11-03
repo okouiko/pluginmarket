@@ -14,7 +14,7 @@ export function isTauri(): boolean {
 }
 ```
 
-Tauri 2 默认注入 `__TAURI_INTERNALS__`，`withGlobalTauri` 配置才会注入 `__TAURI__`；两者都检测可避免桌面端被误判为 Web。`GuidePage` 使用相同的双检测逻辑。
+Tauri 2 默认注入 `__TAURI_INTERNALS__`，`withGlobalTauri` 配置才会注入 `__TAURI__`；两者都检测可避免桌面端被误判为 Web。`pages/guide/env.ts` 使用相同的双检测逻辑。
 
 ### 1.2 Base URL 解析 `getBaseUrl`
 
@@ -92,13 +92,9 @@ Tauri：https://api.spiget.org/v2/search/resources/essentials?size=12&page=1&sor
 | 函数 | 签名 | API 路径 | 说明 |
 | --- | --- | --- | --- |
 | `searchSpiget` | `(query, page = 1, size = 10) => Promise<PluginBase[]>` | `/search/resources/<query>?size&page&sort=-downloads` | page 从 1 开始 |
-| `getSpigetResource` | `(id: string) => Promise<PluginBase>` | `/resources/<id>` | 详情基础信息 |
-| `getSpigetResourceDescription` | `(id: string) => Promise<string>` | `/resources/<id>` | 取 `description` 并 Base64 解码为 HTML |
-| `getSpigetCategories` | `() => Promise<SpigetCategory[]>` | `/categories?size=50` | **当前未被 UI 使用** |
-| `getSpigetCategoryResources` | `(categoryId, page = 1, size = 10)` | `/categories/<id>/resources?...` | **当前未被 UI 使用** |
-| `getSpigetAuthor` | `(authorId) => Promise<SpigetAuthor>` | `/authors/<id>` | **当前未被 UI 使用** |
+| `getSpigetResource` | `(id: string) => Promise<PluginBase>` | `/resources/<id>` | 详情基础信息，同时把 `description` 解码后写入 `PluginBase.description`（一次请求拿到详情 + 描述） |
+| `getSpigetResourceDescription` | `(id: string) => Promise<string>` | `/resources/<id>` | 仅作为旧缓存缺少描述时的补充回退 |
 | `getSpigetAuthorResources` | `(authorId, page = 1, size = 10)` | `/authors/<id>/resources?...` | 作者页 `AuthorPage` 使用 |
-| `getSpigetNewResources` | `(page = 1, size = 10)` | `/resources/new?...` | **当前未被 UI 使用** |
 | `getSpigetPopularResources` | `(page = 1, size = 10)` | `/resources?...&sort=-downloads` | 首页热门、换一批 |
 
 ### 2.3 映射要点
@@ -129,7 +125,8 @@ Tauri：https://api.spiget.org/v2/search/resources/essentials?size=12&page=1&sor
 | `lastUpdate` | `new Date(lastUpdated).getTime()` |
 | `sourceUrl` | `https://hangar.papermc.io/<owner>/<slug>` |
 | `rating` | `undefined` |
-| `version` / `images` / `description` | 未设置 |
+| `description` | `p.description`（项目简介，作为 pages 失败时的回退） |
+| `version` / `images` | 未设置 |
 
 ### 3.2 导出函数
 
@@ -137,7 +134,7 @@ Tauri：https://api.spiget.org/v2/search/resources/essentials?size=12&page=1&sor
 | --- | --- | --- | --- |
 | `searchHangar` | `(query, page = 0, size = 10)` | `/projects?q&limit&offset&sort=-downloads` | `offset = page * size`，page 从 0 开始 |
 | `getHangarProject` | `(owner, slug)` | `/projects/<owner>/<slug>` | 详情 |
-| `getHangarProjectDescription` | `(owner, slug) => Promise<string>` | `/projects/<owner>/<slug>/pages[/<path>]` | 依次尝试 `''`、`main`、`home`、`Home`、`Main`；数组取第一条 `content`；全失败回退项目 `description` |
+| `getHangarProjectDescription` | `(owner, slug) => Promise<string>` | `/projects/<owner>/<slug>/pages` | 只请求一次：数组取第一条 `content`，对象取 `content`；失败返回空串，由调用方回退项目 `description` |
 | `getHangarPopular` | `(page = 0, size = 10)` | `/projects?limit&offset&sort=-downloads` | 首页热门 |
 | `getHangarAuthorProjects` | `(author, page = 0, size = 10)` | `/projects?owner&limit&offset&sort=-downloads` | 作者页 |
 
@@ -145,22 +142,17 @@ Tauri：https://api.spiget.org/v2/search/resources/essentials?size=12&page=1&sor
 
 ```mermaid
 flowchart TD
-    A["getHangarProjectDescription"] --> B{"尝试 pages 路径"}
-    B -->|空路径| C["/projects/{owner}/{slug}/pages"]
-    B -->|main/home/Home/Main| D["/projects/{owner}/{slug}/pages/{path}"]
-    C --> E{"响应是数组?"}
-    D --> E
-    E -->|是| F["取 pages[0].content"]
-    E -->|否| G["取 pages.content"]
-    F --> H["返回"]
-    G --> H
-    C -->|异常| B
-    D -->|异常| B
-    B -->|全部失败| I["GET /projects/{owner}/{slug}"]
-    I --> J["返回 project.description 或空串"]
+    A["getHangarProjectDescription"] --> B["GET /projects/{owner}/{slug}/pages"]
+    B --> C{"响应是数组?"}
+    C -->|是| D["pages[0].content"]
+    C -->|否| E["pages.content"]
+    B -->|异常| F["返回空串"]
+    F --> G["PluginDetailPage 回退 plugin.description"]
+    D --> H["返回"]
+    E --> H
 ```
 
-该流程会对同一项目发起最多 6 次请求，且每次失败都被静默捕获。
+详情页总请求数为 2：项目详情 + pages；pages 失败时直接复用已获取的项目简介，不再重复请求详情。
 
 ## 4. Modrinth 适配器 `modrinth.ts`
 
@@ -178,12 +170,9 @@ flowchart TD
 | 函数 | 签名 | API 路径 | 说明 |
 | --- | --- | --- | --- |
 | `searchModrinth` | `(query, page = 0, size = 10)` | `/search?query&limit&offset&index=relevance&facets` | facets 限定 `project_type:plugin` 且服务端可用 |
-| `getModrinthProject` | `(idOrSlug)` | `/project/<idOrSlug>` | 详情 |
-| `getModrinthProjectDescription` | `(idOrSlug) => Promise<string>` | `/project/<idOrSlug>` | 返回 `body` |
+| `getModrinthProject` | `(idOrSlug)` | `/project/<idOrSlug>` | 详情；`body` 直接作为描述，团队接口仅补全作者 |
 | `getModrinthPopular` | `(page = 0, size = 10)` | `/search?...&index=downloads&facets` | 只限定 `project_type:plugin` |
-| `getModrinthTeamMembers` | `(teamId)` | `/team/<teamId>/members` | 详情作者补全 |
 | `getModrinthUserProjects` | `(userId)` | `/user/<userId>/projects` | 作者页 |
-| `getModrinthCategories` | `()` | `/tag/category` | **当前未被 UI 使用** |
 
 搜索 facets：
 
@@ -272,30 +261,23 @@ getModrinthPopular(p - 1, 10)
 | 函数 | 签名 | 行为 | 使用方 |
 | --- | --- | --- | --- |
 | `formatDownloads` | `(n: number) => string` | ≥1,000,000 输出 `1.2M`；≥1,000 输出 `12.3K`；否则原样 | `PluginCard`、`PluginDetailPage` |
-| `formatRating` | `(rating?: number) => number` | 四舍五入到 1 位小数；无评分返回 0 | **当前未被使用** |
-| `getPlatformColor` | `(platform: Platform) => string` | 返回 `bg-spigot` / `bg-hangar` / `bg-modrinth` | **当前未被使用**（组件使用自己的颜色映射） |
-| `getPlatformName` | `(platform: Platform) => string` | `Spigot` / `Hangar` / `Modrinth` | `PluginCard`、`PluginDetailPage` |
+| `getPlatformName` | `(platform: Platform) => string` | `Spigot` / `Hangar` / `Modrinth` | `PluginCard`、`PluginDetailPage`、`MainPage` |
 
 ## 6. API 端点总表
 
 | 平台 | 用途 | 方法与路径 |
 | --- | --- | --- |
 | Spiget | 搜索 | `GET /search/resources/{query}?size&page&sort=-downloads` |
-| Spiget | 详情 | `GET /resources/{id}` |
-| Spiget | 分类 | `GET /categories?size=50` |
-| Spiget | 分类资源 | `GET /categories/{id}/resources?size&page&sort=-downloads` |
-| Spiget | 作者 | `GET /authors/{id}` |
+| Spiget | 详情（含描述） | `GET /resources/{id}` |
 | Spiget | 作者资源 | `GET /authors/{id}/resources?size&page&sort=-downloads` |
-| Spiget | 最新 | `GET /resources/new?size&page` |
 | Spiget | 热门 | `GET /resources?size&page&sort=-downloads` |
 | Hangar | 搜索/热门/作者 | `GET /projects?q/owner/limit/offset/sort` |
 | Hangar | 详情 | `GET /projects/{owner}/{slug}` |
-| Hangar | 页面内容 | `GET /projects/{owner}/{slug}/pages[/{path}]` |
+| Hangar | 页面内容 | `GET /projects/{owner}/{slug}/pages` |
 | Modrinth | 搜索 | `GET /search?query&limit&offset&index&facets` |
 | Modrinth | 详情 | `GET /project/{idOrSlug}` |
-| Modrinth | 团队成员 | `GET /team/{teamId}/members` |
+| Modrinth | 团队成员（作者补全） | `GET /team/{teamId}/members` |
 | Modrinth | 用户项目 | `GET /user/{id}/projects` |
-| Modrinth | 分类标签 | `GET /tag/category` |
 
 ## 7. 扩展新平台
 

@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Loader2, TrendingUp, Sparkles, ChevronDown, ChevronRight, Filter, RefreshCw, Languages, AlertCircle } from 'lucide-react'
-import SearchBar, { type SearchFilters } from '@/components/SearchBar'
+import { Loader2, TrendingUp, Sparkles, ChevronDown, Filter, RefreshCw, Languages, AlertCircle } from 'lucide-react'
+import SearchBar from '@/components/SearchBar'
 import PlatformToggle from '@/components/PlatformToggle'
 import PluginCard from '@/components/PluginCard'
+import FilterPanel from '@/components/FilterPanel'
 import { useAppStore } from '@/store'
 import { searchAll, getPlatformName } from '@/services/search'
 import { applyPluginFilters, type SortOption } from '@/services/filters'
@@ -11,65 +12,12 @@ import { getSpigetPopularResources } from '@/services/spiget'
 import { getHangarPopular } from '@/services/hangar'
 import { getModrinthPopular } from '@/services/modrinth'
 import { isAIAvailable, translatePluginInfos, type PluginTranslation } from '@/services/ai'
-import type { PluginBase, Platform } from '@/types'
-
-// 中文分类
-const categories = [
-  { id: 'all', label: '全部' },
-  { id: 'gameplay', label: '游戏玩法' },
-  { id: 'admin', label: '管理工具' },
-  { id: 'chat', label: '聊天社交' },
-  { id: 'economy', label: '经济系统' },
-  { id: 'protection', label: '领地保护' },
-  { id: 'world', label: '世界生成' },
-  { id: 'teleport', label: '传送系统' },
-  { id: 'pvp', label: 'PvP 战斗' },
-  { id: 'minigame', label: '小游戏' },
-  { id: 'utility', label: '实用工具' },
-  { id: 'api', label: 'API/库' },
-  { id: 'cosmetic', label: '装饰美化' },
-  { id: 'npc', label: 'NPC 系统' },
-  { id: 'quest', label: '任务系统' },
-  { id: 'skill', label: '技能/职业' },
-]
-
-// 服务端类型
-const serverTypes = [
-  { id: 'all', label: '全部服务端' },
-  { id: 'paper', label: 'Paper' },
-  { id: 'spigot', label: 'Spigot' },
-  { id: 'bukkit', label: 'Bukkit' },
-  { id: 'folia', label: 'Folia' },
-  { id: 'velocity', label: 'Velocity' },
-  { id: 'bungeecord', label: 'BungeeCord' },
-  { id: 'waterfall', label: 'Waterfall' },
-  { id: 'fabric', label: 'Fabric' },
-  { id: 'forge', label: 'Forge' },
-  { id: 'sponge', label: 'Sponge' },
-]
-
-// 排序方式
-const sortOptions = [
-  { id: 'popular', label: '最热门' },
-  { id: 'newest', label: '最新发布' },
-  { id: 'updated', label: '最近更新' },
-  { id: 'downloads', label: '下载量' },
-  { id: 'rating', label: '评分最高' },
-]
-
-// 下载量筛选
-const downloadFilters = [
-  { id: 'all', label: '不限' },
-  { id: '1000', label: '1,000+' },
-  { id: '10000', label: '10,000+' },
-  { id: '50000', label: '50,000+' },
-  { id: '100000', label: '100,000+' },
-]
+import type { PluginBase, Platform, SearchFilters } from '@/types'
 
 export default function MainPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') || ''
-  const { enabledPlatforms } = useAppStore()
+  const enabledPlatforms = useAppStore(s => s.enabledPlatforms)
   
   // 搜索模式：false = 首页热门，true = 搜索结果
   const [isSearchMode, setIsSearchMode] = useState(!!query)
@@ -86,19 +34,19 @@ export default function MainPage() {
   const [failedPlatforms, setFailedPlatforms] = useState<Platform[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
-  // 折叠状态
-  const [serverCollapsed, setServerCollapsed] = useState(true)
-  const [downloadsCollapsed, setDownloadsCollapsed] = useState(false)
-  const [sortCollapsed, setSortCollapsed] = useState(true)
-  
-  // AI 翻译
+  // AI 翻译（translationsRef 作为缓存，避免重复调用 AI）
   const [translations, setTranslations] = useState<Map<string, PluginTranslation>>(new Map())
+  const translationsRef = useRef<Map<string, PluginTranslation>>(new Map())
   const [translating, setTranslating] = useState(false)
   const [translateEnabled, setTranslateEnabled] = useState(false)
   
   // 随机刷新
   const [randomPage, setRandomPage] = useState(1)
   const [refreshing, setRefreshing] = useState(false)
+
+  // 已加载的搜索词与热门参数指纹，避免重复请求（含 StrictMode 的重复 effect）
+  const loadedQueryRef = useRef<string | null>(null)
+  const popularKeyRef = useRef<string | null>(null)
 
   // 记录平台失败，避免静默吞错
   const markPlatformError = useCallback((platform: Platform, error: unknown) => {
@@ -192,6 +140,8 @@ export default function MainPage() {
     setSearchParams(params)
     setIsSearchMode(true)
     setPlugins([])
+    // 记录本次搜索词，避免 query effect 重复发起同一请求
+    loadedQueryRef.current = q
     doSearch(q, 1)
   }
 
@@ -201,18 +151,18 @@ export default function MainPage() {
     setRandomPage(Math.floor(Math.random() * 10) + 1)
   }
 
-  // 翻译插件
+  // 翻译插件（只请求尚未翻译的条目）
   async function translatePlugins(pluginsToTranslate: PluginBase[]) {
     if (!isAIAvailable('translate') || translating) return
     setTranslating(true)
     try {
-      const pluginInfos = pluginsToTranslate.map(p => ({ id: p.id, name: p.name, tag: p.tag }))
+      const pending = pluginsToTranslate.filter(p => !translationsRef.current.has(p.id))
+      if (pending.length === 0) return
+
+      const pluginInfos = pending.map(p => ({ id: p.id, name: p.name, tag: p.tag }))
       const newTranslations = await translatePluginInfos(pluginInfos)
-      setTranslations(prev => {
-        const merged = new Map(prev)
-        newTranslations.forEach((v, k) => merged.set(k, v))
-        return merged
-      })
+      newTranslations.forEach((v, k) => translationsRef.current.set(k, v))
+      setTranslations(new Map(translationsRef.current))
     } catch (err) {
       console.error('翻译失败:', err)
     } finally {
@@ -256,22 +206,26 @@ export default function MainPage() {
     setSelectedVersion(searchParams.get('version') || '')
   }, [searchParams])
 
-  // 初始化和监听
+  // 搜索词 / 平台开关 / 换一批统一在一个 effect 内处理，参数指纹去重
   useEffect(() => {
     if (query) {
       setIsSearchMode(true)
-      doSearch(query)
-    } else {
-      setIsSearchMode(false)
-      loadPopular()
+      popularKeyRef.current = null
+      if (loadedQueryRef.current !== query) {
+        loadedQueryRef.current = query
+        doSearch(query)
+      }
+      return
     }
-  }, [query])
 
-  useEffect(() => {
-    if (!isSearchMode) {
+    loadedQueryRef.current = null
+    setIsSearchMode(false)
+    const key = `${enabledPlatforms.join(',')}|${randomPage}`
+    if (popularKeyRef.current !== key) {
+      popularKeyRef.current = key
       loadPopular()
     }
-  }, [enabledPlatforms, randomPage])
+  }, [query, enabledPlatforms, randomPage])
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
@@ -336,116 +290,16 @@ export default function MainPage() {
           }`}
           style={{ transitionDelay: isSearchMode ? '200ms' : '0ms' }}
         >
-          <div className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-4 sticky top-20 space-y-5 max-h-[calc(100vh-6rem)] overflow-y-auto">
-            <h3 className="font-minecraft text-sm font-medium flex items-center gap-1 text-gray-800 dark:text-dark-text">
-              <Filter className="w-4 h-4" />
-              筛选
-            </h3>
-
-            {/* 分类 */}
-            <div>
-              <h4 className="font-minecraft text-xs text-gray-500 dark:text-dark-text-secondary mb-2 uppercase tracking-wider">分类</h4>
-              <div className="space-y-0.5">
-                {categories.map(cat => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setSelectedCategory(cat.id)}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors ${
-                      selectedCategory === cat.id
-                        ? 'bg-mc-green/10 dark:bg-mc-green/20 text-mc-green font-medium'
-                        : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-border/50'
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 服务端 - 可折叠 */}
-            <div>
-              <button
-                onClick={() => setServerCollapsed(!serverCollapsed)}
-                className="w-full flex items-center justify-between font-minecraft text-xs text-gray-500 dark:text-dark-text-secondary mb-2 uppercase tracking-wider hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-              >
-                <span>服务端</span>
-                <ChevronRight className={`w-3.5 h-3.5 collapse-arrow ${!serverCollapsed ? 'expanded' : ''}`} />
-              </button>
-              <div className={`collapsible-content ${!serverCollapsed ? 'expanded' : ''}`}>
-                <div>
-                  <div className="space-y-0.5">
-                    {serverTypes.map(st => (
-                      <button
-                        key={st.id}
-                        onClick={() => setSelectedServer(st.id)}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors ${
-                          selectedServer === st.id
-                            ? 'bg-mc-green/10 dark:bg-mc-green/20 text-mc-green font-medium'
-                            : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-border/50'
-                        }`}
-                      >
-                        {st.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 下载量 - 可折叠 */}
-            <div>
-              <button
-                onClick={() => setDownloadsCollapsed(!downloadsCollapsed)}
-                className="w-full flex items-center justify-between font-minecraft text-xs text-gray-500 dark:text-dark-text-secondary mb-2 uppercase tracking-wider hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-              >
-                <span>最低下载量</span>
-                <ChevronRight className={`w-3.5 h-3.5 collapse-arrow ${!downloadsCollapsed ? 'expanded' : ''}`} />
-              </button>
-              <div className={`collapsible-content ${!downloadsCollapsed ? 'expanded' : ''}`}>
-                <div>
-                  <div className="space-y-0.5">
-                    {downloadFilters.map(df => (
-                      <button
-                        key={df.id}
-                        onClick={() => setSelectedDownloads(df.id)}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs transition-colors ${
-                          selectedDownloads === df.id
-                            ? 'bg-mc-green/10 dark:bg-mc-green/20 text-mc-green font-medium'
-                            : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-border/50'
-                        }`}
-                      >
-                        {df.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 排序 - 可折叠 */}
-            <div>
-              <button
-                onClick={() => setSortCollapsed(!sortCollapsed)}
-                className="w-full flex items-center justify-between font-minecraft text-xs text-gray-500 dark:text-dark-text-secondary mb-2 uppercase tracking-wider hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-              >
-                <span>排序方式</span>
-                <ChevronRight className={`w-3.5 h-3.5 collapse-arrow ${!sortCollapsed ? 'expanded' : ''}`} />
-              </button>
-              <div className={`collapsible-content ${!sortCollapsed ? 'expanded' : ''}`}>
-                <div>
-                  <select
-                    value={selectedSort}
-                    onChange={(e) => setSelectedSort(e.target.value as SortOption)}
-                    className="w-full px-2.5 py-1.5 rounded-md text-xs border border-mc-border dark:border-dark-border bg-white dark:bg-dark-card text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-mc-green"
-                  >
-                    {sortOptions.map(s => (
-                      <option key={s.id} value={s.id}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
+          <FilterPanel
+            selectedCategory={selectedCategory}
+            selectedServer={selectedServer}
+            selectedDownloads={selectedDownloads}
+            selectedSort={selectedSort}
+            onCategoryChange={setSelectedCategory}
+            onServerChange={setSelectedServer}
+            onDownloadsChange={setSelectedDownloads}
+            onSortChange={setSelectedSort}
+          />
         </aside>
 
         {/* 主内容区域 */}
@@ -546,6 +400,7 @@ export default function MainPage() {
                           name: displayName,
                           tag: displayTag,
                         }}
+                        favoritePlugin={plugin}
                       />
                     </div>
                   )

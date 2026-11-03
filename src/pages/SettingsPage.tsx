@@ -13,7 +13,16 @@ const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot
 }
 
 export default function SettingsPage() {
-  const { models, roleAssignments, updateModel, addModel, removeModel, setRoleAssignment, corsProxy, setCorsProxy, aiProxy, setAiProxy } = useAppStore()
+  const models = useAppStore(s => s.models)
+  const roleAssignments = useAppStore(s => s.roleAssignments)
+  const updateModel = useAppStore(s => s.updateModel)
+  const addModel = useAppStore(s => s.addModel)
+  const removeModel = useAppStore(s => s.removeModel)
+  const setRoleAssignment = useAppStore(s => s.setRoleAssignment)
+  const corsProxy = useAppStore(s => s.corsProxy)
+  const setCorsProxy = useAppStore(s => s.setCorsProxy)
+  const aiProxy = useAppStore(s => s.aiProxy)
+  const setAiProxy = useAppStore(s => s.setAiProxy)
   const secureStorageSupported = isSecureStorageSupported()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [newModelOpen, setNewModelOpen] = useState(false)

@@ -8,6 +8,8 @@ import { useState } from 'react'
 
 interface Props {
   plugin: PluginBase
+  /** 收藏时保存的原始数据（plugin 可能是 AI 翻译后的展示副本） */
+  favoritePlugin?: PluginBase
 }
 
 const platformColors: Record<string, string> = {
@@ -22,8 +24,10 @@ const platformBgColors: Record<string, string> = {
   modrinth: 'bg-modrinth/10 dark:bg-modrinth/20',
 }
 
-export default function PluginCard({ plugin }: Props) {
-  const { isFavorite, addFavorite, removeFavorite } = useAppStore()
+export default function PluginCard({ plugin, favoritePlugin }: Props) {
+  const isFavorite = useAppStore(s => s.isFavorite)
+  const addFavorite = useAppStore(s => s.addFavorite)
+  const removeFavorite = useAppStore(s => s.removeFavorite)
   const [menuOpen, setMenuOpen] = useState(false)
   const navigate = useNavigate()
   const fav = isFavorite(plugin.id)
@@ -32,7 +36,7 @@ export default function PluginCard({ plugin }: Props) {
     e.preventDefault()
     e.stopPropagation()
     if (fav) removeFavorite(plugin.id)
-    else addFavorite(plugin)
+    else addFavorite(favoritePlugin ?? plugin)
   }
 
   const stars = plugin.rating ? Math.round(plugin.rating) : 0

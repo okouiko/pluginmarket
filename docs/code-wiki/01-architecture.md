@@ -18,7 +18,7 @@
 | Web 生产 | `npm run build` + 静态托管 | `corsProxy + encodeURIComponent(真实 URL)`，默认 `https://api.allorigins.win/raw?url=` | 无 | 浏览器直连（受模型服务 CORS 策略影响） |
 | Tauri 桌面 | `npm run tauri dev` / `npx tauri build` | 直接请求 `https://api.spiget.org/v2` 等真实地址 | `plugin-fs` 只读、`plugin-dialog` 选择目录 | WebView 内直连 |
 
-环境判定逻辑集中在 [api-base.ts](../../src/services/api-base.ts#L4-L38)：`isTauri()` 同时检测 `window.__TAURI__` 与 `window.__TAURI_INTERNALS__`，`import.meta.env.DEV` 区分开发/生产。`GuidePage` 使用相同的双检测，见 [GuidePage.tsx](../../src/pages/GuidePage.tsx#L12)。
+环境判定逻辑集中在 [api-base.ts](../../src/services/api-base.ts#L4-L38)：`isTauri()` 同时检测 `window.__TAURI__` 与 `window.__TAURI_INTERNALS__`，`import.meta.env.DEV` 区分开发/生产。`GuidePage` 的 Tauri 判定集中在 [guide/env.ts](../../src/pages/guide/env.ts)。
 
 ## 3. 分层架构
 
@@ -33,7 +33,7 @@ flowchart TB
         App["App.tsx<br/>HashRouter + 布局"]
         Header["Header"]
         Pages["7 个页面<br/>MainPage / PluginDetailPage / DocsPage / GuidePage<br/>SettingsPage / FavoritesPage / AuthorPage"]
-        Components["7 个组件<br/>SearchBar / DocsSearch / AskAIPanel<br/>PluginCard / PlatformToggle / PlatformIcons"]
+        Components["组件层<br/>SearchBar + SearchAgentPanel<br/>DocsSearch + DocsSearchResults<br/>AskAIPanel / FilterPanel / PluginCard<br/>PlatformToggle / PlatformIcons"]
     end
 
     subgraph State["状态层"]
@@ -94,11 +94,12 @@ flowchart TB
 
 - [App.tsx](../../src/App.tsx) 负责路由、暗色模式副作用、全局页头页脚。
 - [pages/](../../src/pages) 承担页面级状态与业务流程编排。
-- [components/](../../src/components) 提供可复用 UI，其中 `SearchBar`、`DocsSearch`、`AskAIPanel` 也包含较重的业务逻辑（AI Agent、检索评分、流式对话），这是当前架构的显著特征。
+- [components/](../../src/components) 提供可复用 UI；`SearchBar` 保留搜索编排，AI 对话展示拆到 `SearchAgentPanel`；`DocsSearch` 保留检索逻辑，结果下拉拆到 `DocsSearchResults`；`MainPage` 的筛选面板拆到 `FilterPanel`。
+- [pages/guide/](../../src/pages/guide) 承载“指导开服”的三个预设：`TranslatePreset`、`SimpleServerPreset`、`AgentPreset`，`PresetSelector` 负责入口与返回。
 
 ### 3.2 状态层
 
-单例 Zustand Store 位于 [store/index.ts](../../src/store/index.ts)。所有需要跨页面共享、跨会话保留的数据都在这里：主题、启用的平台、收藏、AI 模型配置、角色分配、CORS 代理、插件缓存、搜索历史。Store 内部用 `loadFromStorage` / `saveToStorage` 做同步持久化，没有异步中间件。
+单例 Zustand Store 位于 [store/index.ts](../../src/store/index.ts)。所有需要跨页面共享、跨会话保留的数据都在这里：主题、启用的平台、收藏、AI 模型配置、角色分配、CORS 代理、AI 请求代理、插件缓存、搜索历史。Store 内部用 `loadFromStorage` / `saveToStorage` 做同步持久化，没有异步中间件。
 
 ### 3.3 领域服务层
 
@@ -154,20 +155,20 @@ sequenceDiagram
 关键点：
 
 - 三个平台分页语义不同：Spigot 的 `page` 从 1 开始，Hangar/Modrinth 用 `offset`（从 0 开始），`searchAll` 内部做了换算。
-- 任一平台失败不会影响整体：每个请求都带 `.catch(() => [])`。
-- 搜索模式与“热门插件”模式共用 `plugins` 状态，见 [MainPage.tsx](../../src/pages/MainPage.tsx#L101-L159)。
+- 任一平台失败不会影响整体：`searchAll` 通过 `onError` 上报并把该平台结果降级为空数组。
+- 搜索模式与“热门插件”模式共用 `plugins` 状态，`loadedQueryRef` 与 `popularKeyRef` 避免重复请求，见 [MainPage.tsx](../../src/pages/MainPage.tsx#L58-L228)。
 
 ### 4.2 插件详情
 
-`PluginDetailPage` 先按 `platform` 分派到对应适配器，分别获取 **基础信息** 与 **完整描述**：
+`PluginDetailPage` 先按 `platform` 分派到对应适配器获取 **基础信息** 与 **完整描述**：
 
-| 平台 | 详情函数 | 描述函数 | 描述格式 |
+| 平台 | 详情函数 | 描述来源 | 描述格式 |
 | --- | --- | --- | --- |
-| spigot | `getSpigetResource(id)` | `getSpigetResourceDescription(id)` | Base64 解码后的 HTML |
-| hangar | `getHangarProject(owner, slug)` | `getHangarProjectDescription(owner, slug)` | Markdown / HTML（pages 端点，多路径兜底） |
-| modrinth | `getModrinthProject(idOrSlug)` | `getModrinthProjectDescription(idOrSlug)` | Markdown |
+| spigot | `getSpigetResource(id)` | 详情响应内的 `description`（旧缓存缺描述时才补 `getSpigetResourceDescription`） | Base64 解码后的 HTML |
+| hangar | `getHangarProject(owner, slug)` | `getHangarProjectDescription(owner, slug)`，失败回退 `plugin.description` | Markdown / HTML（pages 单次请求） |
+| modrinth | `getModrinthProject(idOrSlug)` | 复用 `project.body` | Markdown |
 
-详情页用 `getCachedPlugin` 尝试命中 1 小时缓存，加载成功后 `cachePlugin` 写回。渲染时 Spigot 走 `dangerouslySetInnerHTML`（经 DOMPurify 消毒），其余平台走 `ReactMarkdown` + `rehype-sanitize`，见 [PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx#L326-L360)。
+详情页用 `getCachedPlugin` 尝试命中 1 小时缓存，加载成功后 `cachePlugin` 写回。渲染时 Spigot 走 `dangerouslySetInnerHTML`（经 DOMPurify 消毒），其余平台走 `ReactMarkdown` + `rehype-sanitize`，见 [PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx#L330-L380)。
 
 ### 4.3 AI 对话
 
@@ -233,20 +234,30 @@ pluginmarket/
 │   ├── data/
 │   │   └── docs.ts             # 72 篇文档单一数据源
 │   ├── utils/
-│   │   └── sanitize.ts         # DOMPurify HTML 消毒
+│   │   ├── sanitize.ts         # DOMPurify HTML 消毒
+│   │   └── markdown.ts         # 标题锚点 slug 与同名去重
 │   ├── pages/
 │   │   ├── MainPage.tsx        # 首页 + 浏览页
 │   │   ├── PluginDetailPage.tsx
 │   │   ├── DocsPage.tsx
-│   │   ├── GuidePage.tsx
+│   │   ├── GuidePage.tsx       # 预设入口
 │   │   ├── SettingsPage.tsx
 │   │   ├── FavoritesPage.tsx
-│   │   └── AuthorPage.tsx
+│   │   ├── AuthorPage.tsx
+│   │   └── guide/
+│   │       ├── PresetSelector.tsx
+│   │       ├── TranslatePreset.tsx
+│   │       ├── SimpleServerPreset.tsx
+│   │       ├── AgentPreset.tsx
+│   │       ├── env.ts / loadDocs.ts / types.ts
 │   ├── components/
 │   │   ├── Header.tsx
 │   │   ├── SearchBar.tsx
+│   │   ├── SearchAgentPanel.tsx
 │   │   ├── DocsSearch.tsx
+│   │   ├── DocsSearchResults.tsx
 │   │   ├── AskAIPanel.tsx
+│   │   ├── FilterPanel.tsx
 │   │   ├── PluginCard.tsx
 │   │   ├── PlatformToggle.tsx
 │   │   └── PlatformIcons.tsx
@@ -269,7 +280,7 @@ pluginmarket/
 
 | 机制 | 实现位置 | 作用 |
 | --- | --- | --- |
-| 环境自适应 | `api-base.ts`、`GuidePage.tsx` | 开发 / 生产 / Tauri 三套 API 路由，兼容 `__TAURI__` 与 `__TAURI_INTERNALS__` |
+| 环境自适应 | `api-base.ts`、`pages/guide/env.ts` | 开发 / 生产 / Tauri 三套 API 路由，兼容 `__TAURI__` 与 `__TAURI_INTERNALS__` |
 | CORS 兜底 | `api-base.ts#L41-L72` | 生产 Web 端用用户可配置代理 |
 | 数据归一化 | 三个平台适配器 | 上游差异被隔离在服务层 |
 | 本地持久化 | `store/index.ts#L6-L32` | 主题、收藏、AI 配置、缓存、历史 |

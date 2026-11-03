@@ -10,7 +10,7 @@ import { useAppStore } from '@/store'
 import { sanitizeHtml } from '@/utils/sanitize'
 import { getSpigetResource, getSpigetResourceDescription } from '@/services/spiget'
 import { getHangarProject, getHangarProjectDescription } from '@/services/hangar'
-import { getModrinthProject, getModrinthProjectDescription } from '@/services/modrinth'
+import { getModrinthProject } from '@/services/modrinth'
 import { formatDownloads, getPlatformName } from '@/services/search'
 import { isAIAvailable, chatCompletionStream, translateDocumentStream, describeImages } from '@/services/ai'
 import { PlatformIcon } from '@/components/PlatformIcons'
@@ -46,7 +46,11 @@ function ApiKeyWarning({ feature }: { feature: string }) {
 export default function PluginDetailPage() {
   const { platform, id, subId } = useParams<{ platform: string; id: string; subId?: string }>()
   const navigate = useNavigate()
-  const { isFavorite, addFavorite, removeFavorite, cachePlugin, getCachedPlugin } = useAppStore()
+  const isFavorite = useAppStore(s => s.isFavorite)
+  const addFavorite = useAppStore(s => s.addFavorite)
+  const removeFavorite = useAppStore(s => s.removeFavorite)
+  const cachePlugin = useAppStore(s => s.cachePlugin)
+  const getCachedPlugin = useAppStore(s => s.getCachedPlugin)
 
   const [plugin, setPlugin] = useState<PluginBase | null>(null)
   const [description, setDescription] = useState('')
@@ -97,15 +101,18 @@ export default function PluginDetailPage() {
 
       if (platform === 'spigot') {
         pluginData = cached || await getSpigetResource(fullId!)
-        desc = await getSpigetResourceDescription(fullId!)
+        // 详情接口已带描述；仅旧缓存缺少描述时才补一次请求
+        desc = pluginData.description || ''
+        if (!desc) desc = await getSpigetResourceDescription(fullId!)
       } else if (platform === 'hangar') {
         const owner = id!
         const slug = subId || ''
         pluginData = cached || await getHangarProject(owner, slug)
-        desc = await getHangarProjectDescription(owner, slug)
+        // 优先使用 pages 内容，失败时回退到已获取的项目简介
+        desc = await getHangarProjectDescription(owner, slug) || pluginData.description || ''
       } else {
         pluginData = cached || await getModrinthProject(fullId!)
-        desc = await getModrinthProjectDescription(fullId!)
+        desc = pluginData.description || ''
       }
 
       setPlugin(pluginData)

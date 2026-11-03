@@ -49,17 +49,6 @@ export interface SpigetResource {
   reviews?: { rating: number; description: string }
 }
 
-export interface SpigetCategory {
-  id: number
-  name: string
-}
-
-export interface SpigetAuthor {
-  id: number
-  name: string
-  icon?: { url: string; data: string }
-}
-
 // Hangar API 类型
 export interface HangarProject {
   createdAt: string
@@ -164,30 +153,16 @@ export interface ChatContentPart {
   image_url?: { url: string }
 }
 
-export interface AIStreamChunk {
-  choices: { delta: { content?: string; role?: string }; finish_reason?: string }[]
+// 搜索过滤器（由 SearchBar 产出，MainPage 消费）
+export interface SearchFilters {
+  category?: string
+  serverType?: string
+  version?: string
+  platforms?: string[]
 }
 
 // 收藏
 export interface Favorite {
   plugin: PluginBase
   addedAt: number
-}
-
-// 设置
-export interface AppSettings {
-  models: AIModelConfig[]
-  roleAssignments: AIRoleAssignment[]
-  corsProxy: string
-  aiProxy?: string
-  enabledPlatforms: Platform[]
-}
-
-// 搜索
-export interface SearchFilters {
-  platforms: Platform[]
-  categories: string[]
-  version?: string
-  sortBy: 'relevance' | 'downloads' | 'rating' | 'updated' | 'name'
-  minDownloads?: number
 }

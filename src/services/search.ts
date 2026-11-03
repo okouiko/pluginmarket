@@ -61,21 +61,6 @@ export function formatDownloads(n: number): string {
   return String(n)
 }
 
-// 格式化评分为星星
-export function formatRating(rating?: number): number {
-  if (!rating) return 0
-  return Math.round(rating * 10) / 10
-}
-
-// 获取平台颜色
-export function getPlatformColor(platform: Platform): string {
-  switch (platform) {
-    case 'spigot': return 'bg-spigot'
-    case 'hangar': return 'bg-hangar'
-    case 'modrinth': return 'bg-modrinth'
-  }
-}
-
 // 获取平台名称
 export function getPlatformName(platform: Platform): string {
   switch (platform) {

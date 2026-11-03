@@ -16,6 +16,7 @@
 | --- | --- | --- |
 | 页面 | `PascalCase.tsx`，默认导出 | `MainPage.tsx` → `export default function MainPage()` |
 | 组件 | `PascalCase.tsx`；多数默认导出，少数具名导出 | `AskAIPanel.tsx` → `export function AskAIPanel` |
+| 页面子组件 | 所属页面的子目录，按功能命名 | `pages/guide/TranslatePreset.tsx` |
 | 服务 | 小写 `kebab-case.ts`，具名导出 | `api-base.ts`、`spiget.ts` |
 | 类型 | 集中 `types/index.ts`，`interface` / `type` 具名导出 | `PluginBase` |
 | Store | 单文件 `store/index.ts`，导出 `useAppStore` | — |
@@ -44,7 +45,7 @@
 
 ### 1.5 错误处理约定
 
-- 服务层抛 `Error`；聚合搜索吞掉单平台错误。
+- 服务层抛 `Error`；聚合搜索通过 `onError` 上报单平台失败，由 `MainPage` 展示提示。
 - UI 层 `try/catch` + `console.error` + 用户可见兜底。
 - AI 错误需区分 `ConcurrencyLimitError` 与普通错误；前者显示并发提示，后者显示 `err.message`。
 - 加载态用 `Loader2` + `animate-spin`。
@@ -114,7 +115,7 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 | 2 | API Key 明文存 `localStorage` | AES-GCM 加密整个模型配置；密钥不可导出并存入 IndexedDB；旧明文自动迁移后删除；不支持 Web Crypto 时仅内存保留 | `services/secure-storage.ts`、`store/index.ts` |
 | 3 | Tauri 权限过宽、CSP 为空 | capabilities 改为只读 FS + 限定 scope；移除全部 shell 权限与插件；配置生产/开发 CSP | `capabilities/default.json`、`tauri.conf.json`、`Cargo.toml`、`lib.rs` |
 | 4 | 文档 `rehypeRaw` 无消毒 | `rehype-raw` 后接 `rehype-sanitize`；Tauri 侧增加 CSP 作为纵深防御 | `DocsPage.tsx`、`PluginDetailPage.tsx`、`tauri.conf.json` |
-| 5 | Agent 可构造 `..` 路径 | 新增 `resolveServerPath`：拒绝绝对路径、UNC、NUL 与越界 `..`；仅允许 serverPath 子目录；移除 shell 回退 | `GuidePage.tsx` |
+| 5 | Agent 可构造 `..` 路径 | 新增 `resolveServerPath`：拒绝绝对路径、UNC、NUL 与越界 `..`；仅允许 serverPath 子目录；移除 shell 回退 | `pages/guide/AgentPreset.tsx` |
 
 同时修复的相关问题：
 
@@ -143,27 +144,35 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 | 21 | Modrinth 详情作者为空 | `getModrinthProject` 通过团队接口补全作者与作者 ID | `services/modrinth.ts` |
 | 22 | AI 请求绕过 CORS 代理 | 新增可配置 `aiProxy`，`buildUrl` 统一走代理前缀 | `store/index.ts`、`services/ai.ts`、`SettingsPage.tsx` |
 
-### 3.3 P2（剩余）
+### 3.3 已修复的 P2 问题
 
-| # | 问题 | 位置 | 影响 |
+| # | 原问题 | 修复方式 | 关键位置 |
 | --- | --- | --- | --- |
-| 24 | 未使用的类型 `AIStreamChunk`、`AppSettings`、`types/SearchFilters` | `types/index.ts` | 类型定义与实现漂移 |
-| 25 | 未使用的导出：`formatRating`、`getPlatformColor`、`getSpigetCategories`、`getSpigetCategoryResources`、`getSpigetNewResources`、`getSpigetAuthor`、`getModrinthCategories`、`translateLines`、`translateDocument`、`describeImage` | 各服务/页面 | 死代码增加维护成本 |
-| 26 | 重复实现：三份锚点生成、两套翻译流程 | `DocsPage`/`AskAIPanel`/`DocsSearch`；`ai.ts`/`GuidePage` | 行为不一致风险 |
-| 27 | 组件过重 | `MainPage` 574 行、`SearchBar` 712 行、`DocsSearch` 492 行、`GuidePage` 1953 行 | 难测试、难复用 |
-| 28 | 整体解构 Store | `MainPage`、`PluginDetailPage`、`SettingsPage` | 任意状态变化触发重渲染 |
-| 29 | 收藏保存译文快照 | `MainPage` + `PluginCard` | 收藏卡显示 AI 译文而非原文 |
-| 30 | `MinecraftBlockIcon` 每次渲染生成随机 id | `PlatformIcons.tsx#L36` | 无意义 DOM 变化与内存开销 |
-| 31 | 重复请求：Spigot 详情与描述各请求一次 `/resources/{id}`；Modrinth 详情额外请求团队信息 | `PluginDetailPage` + `spiget.ts` / `modrinth.ts` | 增加延迟与限流风险 |
-| 32 | Hangar 描述最多 6 次请求 | `hangar.ts#L35-L67` | 详情页变慢 |
-| 33 | 重复翻译无缓存 | `MainPage.toggleTranslate` | 每次加载重新调用 AI |
-| 34 | 锚点重复 id | `generateHeadingSlug` | 同名标题只跳第一个 |
-| 35 | 主题历史选择器残留 | `index.css#L32-L36` | `body.dark-mode` 实际不再使用 |
-| 36 | 404 页面只保存不恢复 redirect | `public/404.html` | 无效路径统一回首页 |
-| 37 | `formatFileSize` 只处理 B/KB/MB | `GuidePage.tsx#L54-L58` | GB 级文件显示为 MB |
-| 38 | 翻译预设并发 200 与模型限流叠加 | `GuidePage.tsx#L216-L240` + `ai.ts` | 实际并发受较小值限制，UI 描述可能误导 |
-| 39 | 首页首次加载重复请求热门 | `MainPage.tsx#L212-L226` | 两个 `useEffect` 在挂载时都调用 `loadPopular`，产生双倍请求 |
-| 40 | 普通搜索重复请求 | `MainPage.tsx#L149-L159` 与 `#L212-L220` | `handleSearch` 直接 `doSearch`，同时 `setSearchParams` 触发 query effect 再次 `doSearch` |
+| 24 | 未使用的类型 `AIStreamChunk`、`AppSettings`、旧 `types/SearchFilters` | 删除前两者；`SearchFilters` 收敛到 `types/index.ts` 并被 `SearchBar` / `MainPage` 实际使用 | `types/index.ts` |
+| 25 | 未使用的导出：`formatRating`、`getPlatformColor`、`getSpigetCategories`、`getSpigetCategoryResources`、`getSpigetNewResources`、`getSpigetAuthor`、`getModrinthCategories`、`translateLines`、`translateDocument`、`describeImage` | 全部删除；同时移除随之失效的 `SpigetCategory` / `SpigetAuthor` 类型 | `spiget.ts`、`modrinth.ts`、`search.ts`、`ai.ts` |
+| 26 | 重复实现：三份锚点生成、两套翻译流程 | 新增 `utils/markdown.ts` 统一 slug 与去重规则；删除 `translateLines` / `translateDocument`，文档翻译只保留流式实现 | `utils/markdown.ts`、`ai.ts` |
+| 27 | 组件过重 | 抽出 `FilterPanel`、`SearchAgentPanel`、`DocsSearchResults`；`GuidePage` 拆为 `guide/PresetSelector`、`TranslatePreset`、`SimpleServerPreset`、`AgentPreset` | `components/`、`pages/guide/` |
+| 28 | 整体解构 Store | 改为字段级选择器订阅 | `MainPage`、`PluginDetailPage`、`SettingsPage`、`PluginCard` |
+| 29 | 收藏保存译文快照 | `PluginCard` 新增 `favoritePlugin`，收藏时写入原始插件数据 | `PluginCard.tsx`、`MainPage.tsx` |
+| 30 | `MinecraftBlockIcon` 每次渲染生成随机 id | 改用 `useId()` 并去掉冒号，id 稳定且唯一 | `PlatformIcons.tsx` |
+| 31 | 重复请求：Spigot 详情与描述各请求一次；Modrinth 详情额外请求描述 | Spigot 详情一次请求即包含描述；Modrinth 复用 `project.body`。团队接口仅用于补全作者，Modrinth API 无单请求替代 | `PluginDetailPage.tsx`、`spiget.ts`、`modrinth.ts` |
+| 32 | Hangar 描述最多 6 次请求 | `/pages` 只请求一次，失败时回退到已获取的项目简介 | `hangar.ts` |
+| 33 | 重复翻译无缓存 | 新增 `translationsRef`，只对未翻译的插件发起 AI 请求 | `MainPage.tsx` |
+| 34 | 锚点重复 id | `buildHeadingIdMap` 按源码行号预生成 id，同名标题追加 `-1`、`-2` | `utils/markdown.ts`、`DocsPage.tsx` |
+| 35 | 主题历史选择器残留 | 移除 `body.dark-mode` 选择器 | `index.css` |
+| 36 | 404 页面只保存不恢复 redirect | 删除无效的 `sessionStorage.redirect` 写入，保留回首页行为（HashRouter 下无深层路径可恢复） | `public/404.html` |
+| 37 | `formatFileSize` 只处理 B/KB/MB | 增加 GB / TB 分支 | `guide/TranslatePreset.tsx` |
+| 38 | 翻译预设并发 200 与模型限流叠加 | 并发数改为读取翻译模型的 `maxConcurrency`，预设文案同步 | `guide/TranslatePreset.tsx` |
+| 39 | 首页首次加载重复请求热门 | 合并为一个 effect，用 `popularKeyRef`（平台列表 + 页码指纹）去重，StrictMode 下也只加载一次 | `MainPage.tsx` |
+| 40 | 普通搜索重复请求 | `loadedQueryRef` 记录已发起的搜索词，`handleSearch` 与 query effect 不再重复 `doSearch` | `MainPage.tsx` |
+
+### 3.4 剩余观察项（非缺陷）
+
+| 项 | 说明 |
+| --- | --- |
+| `AgentPreset` 单文件仍约 1000 行 | 已完成页面级拆分，后续可继续把消息列表/输入区抽成展示组件 |
+| Modrinth 团队接口请求 | Modrinth 项目响应不含作者名，补全作者必须额外请求；已做失败降级 |
+| E2E / 依赖审计 | 目前只有 Vitest 单测与 ESLint，Playwright 与依赖审计仍待接入 |
 
 ## 4. 安全总览
 
@@ -191,7 +200,7 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 - 在 Rust 侧 canonicalize 路径并校验前缀，防止符号链接逃逸。
 - 为桌面端接入系统密钥链（keyring / stronghold）。
 - 为 Web 托管平台配置 CSP 响应头，或增加构建期 meta CSP。
-- 增加 ESLint、Vitest、Playwright 与 `npm ci` 质量门禁。
+- 接入 Playwright E2E 与依赖审计（`npm audit` / Dependabot）。
 
 ## 5. 变更检查清单
 
@@ -221,5 +230,5 @@ flowchart LR
 | --- | --- | --- |
 | 1 | 消除高危面（已完成） | DOMPurify、CSP、Tauri 最小权限、Key 加密存储、路径校验 |
 | 2 | 修复核心功能（已完成） | 分页修正、热门偏移、筛选接入、缓存键、请求超时与错误提示、文档统一索引、AI 并发与代理、CI/测试 |
-| 3 | 降低维护成本 | 拆分 SearchBar/DocsSearch/GuidePage、统一 AI 错误组件、清理未使用代码 |
-| 4 | 建立质量门禁 | ESLint + Prettier、更多 Vitest/Playwright 覆盖、依赖审计、PR 检查清单 |
+| 3 | 降低维护成本（已完成） | 拆分 SearchBar/DocsSearch/GuidePage/MainPage、统一锚点与翻译实现、清理未使用代码 |
+| 4 | 建立质量门禁（部分完成） | ESLint 与 Vitest 已接入；待补 Prettier、Playwright、依赖审计与 PR 检查清单 |

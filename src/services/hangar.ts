@@ -14,6 +14,7 @@ function toPluginBase(p: HangarProject): PluginBase {
     rating: undefined, // Hangar 用 stars 代替
     downloads: p.stats.downloads,
     categories: [p.category, ...(p.settings?.tags || [])],
+    description: p.description,
     lastUpdate: new Date(p.lastUpdated).getTime(),
     sourceUrl: `https://hangar.papermc.io/${p.namespace.owner}/${p.namespace.slug}`,
   }
@@ -33,34 +34,14 @@ export async function getHangarProject(owner: string, slug: string): Promise<Plu
 }
 
 export async function getHangarProjectDescription(owner: string, slug: string): Promise<string> {
-  // Hangar 的项目描述在 pages 端点
-  // 尝试多种可能的页面路径
-  const pagePaths = ['', 'main', 'home', 'Home', 'Main']
-  
-  for (const path of pagePaths) {
-    try {
-      const endpoint = path 
-        ? `/projects/${owner}/${slug}/pages/${path}`
-        : `/projects/${owner}/${slug}/pages`
-      const pages = await apiFetch<{ content: string } | { content: string }[]>('hangar', endpoint)
-      
-      // 如果返回数组，取第一个
-      if (Array.isArray(pages)) {
-        if (pages.length > 0 && pages[0].content) {
-          return pages[0].content
-        }
-      } else if (pages.content) {
-        return pages.content
-      }
-    } catch {
-      // 继续尝试下一个路径
-    }
-  }
-  
-  // 如果都失败了，尝试从项目详情获取描述
+  // Hangar 的项目描述在 pages 端点，只请求一次；失败时由调用方回退到项目详情
   try {
-    const project = await apiFetch<HangarProject>('hangar', `/projects/${owner}/${slug}`)
-    return project.description || ''
+    const pages = await apiFetch<{ content: string } | { content: string }[]>(
+      'hangar',
+      `/projects/${owner}/${slug}/pages`,
+    )
+    if (Array.isArray(pages)) return pages[0]?.content || ''
+    return pages.content || ''
   } catch {
     return ''
   }

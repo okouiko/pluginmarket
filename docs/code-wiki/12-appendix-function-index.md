@@ -11,23 +11,19 @@
 | `Platform` | `src/types/index.ts#L2` | `'spigot' \| 'hangar' \| 'modrinth'` | 平台枚举 |
 | `PluginBase` | `src/types/index.ts#L4-L21` | `interface` | 统一插件模型 |
 | `SpigetResource` | `src/types/index.ts#L24-L50` | `interface` | Spiget 原始资源 |
-| `SpigetCategory` | `src/types/index.ts#L52-L55` | `interface` | Spigot 分类 |
-| `SpigetAuthor` | `src/types/index.ts#L57-L61` | `interface` | Spigot 作者 |
-| `HangarProject` | `src/types/index.ts#L64-L75` | `interface` | Hangar 项目 |
-| `HangarSearchResult` | `src/types/index.ts#L77-L80` | `interface` | Hangar 搜索结果 |
-| `ModrinthProject` | `src/types/index.ts#L83-L104` | `interface` | Modrinth 项目详情 |
-| `ModrinthSearchResult` | `src/types/index.ts#L106-L111` | `interface` | Modrinth 搜索结果 |
-| `ModrinthSearchHit` | `src/types/index.ts#L113-L132` | `interface` | Modrinth 搜索命中 |
-| `AIProvider` | `src/types/index.ts#L135` | `'zhipu' \| 'openai-compatible'` | 模型提供商 |
-| `AIModelConfig` | `src/types/index.ts#L137-L147` | `interface` | 模型配置 |
-| `AIRole` | `src/types/index.ts#L149` | `'search' \| 'translate' \| 'chat' \| 'vision' \| 'decision'` | AI 角色 |
-| `AIRoleAssignment` | `src/types/index.ts#L151-L154` | `interface` | 角色→模型 |
-| `ChatMessage` | `src/types/index.ts#L156-L159` | `interface` | 对话消息 |
-| `ChatContentPart` | `src/types/index.ts#L161-L165` | `interface` | 多模态内容 |
-| `AIStreamChunk` | `src/types/index.ts#L167-L169` | `interface` | 流式 chunk（未使用） |
-| `Favorite` | `src/types/index.ts#L172-L175` | `interface` | 收藏快照 |
-| `AppSettings` | `src/types/index.ts#L178-L183` | `interface` | 设置聚合（未使用） |
-| `SearchFilters`（types） | `src/types/index.ts#L186-L192` | `interface` | 筛选（未使用） |
+| `HangarProject` | `src/types/index.ts#L53-L64` | `interface` | Hangar 项目 |
+| `HangarSearchResult` | `src/types/index.ts#L66-L70` | `interface` | Hangar 搜索结果 |
+| `ModrinthProject` | `src/types/index.ts#L72-L93` | `interface` | Modrinth 项目详情 |
+| `ModrinthSearchResult` | `src/types/index.ts#L95-L100` | `interface` | Modrinth 搜索结果 |
+| `ModrinthSearchHit` | `src/types/index.ts#L102-L122` | `interface` | Modrinth 搜索命中 |
+| `AIProvider` | `src/types/index.ts#L124` | `'zhipu' \| 'openai-compatible'` | 模型提供商 |
+| `AIModelConfig` | `src/types/index.ts#L126-L136` | `interface` | 模型配置 |
+| `AIRole` | `src/types/index.ts#L138` | `'search' \| 'translate' \| 'chat' \| 'vision' \| 'decision'` | AI 角色 |
+| `AIRoleAssignment` | `src/types/index.ts#L140-L143` | `interface` | 角色→模型 |
+| `ChatMessage` | `src/types/index.ts#L145-L148` | `interface` | 对话消息 |
+| `ChatContentPart` | `src/types/index.ts#L150-L154` | `interface` | 多模态内容 |
+| `SearchFilters` | `src/types/index.ts#L157-L162` | `interface` | AI 搜索产出、MainPage 消费 |
+| `Favorite` | `src/types/index.ts#L165-L168` | `interface` | 收藏快照 |
 
 ## 2. Store
 
@@ -92,36 +88,28 @@
 | `toPluginBase`（Spigot） | `src/services/spiget.ts#L11-L28` | `(r: SpigetResource) => PluginBase` | 映射 |
 | `decodeBase64` | `src/services/spiget.ts#L31-L39` | `(str: string) => string` | UTF-8 Base64 解码 |
 | `searchSpiget` | `src/services/spiget.ts#L41-L47` | `(query, page=1, size=10) => Promise<PluginBase[]>` | 搜索 |
-| `getSpigetResource` | `src/services/spiget.ts#L49-L52` | `(id) => Promise<PluginBase>` | 详情 |
-| `getSpigetResourceDescription` | `src/services/spiget.ts#L54-L61` | `(id) => Promise<string>` | HTML 描述 |
-| `getSpigetCategories` | `src/services/spiget.ts#L63-L65` | `() => Promise<SpigetCategory[]>` | 分类（未用） |
-| `getSpigetCategoryResources` | `src/services/spiget.ts#L67-L73` | `(categoryId, page=1, size=10)` | 分类资源（未用） |
-| `getSpigetAuthor` | `src/services/spiget.ts#L75-L77` | `(authorId) => Promise<SpigetAuthor>` | 作者（未用） |
-| `getSpigetAuthorResources` | `src/services/spiget.ts#L79-L85` | `(authorId, page=1, size=10)` | 作者作品 |
-| `getSpigetNewResources` | `src/services/spiget.ts#L87-L93` | `(page=1, size=10)` | 最新（未用） |
-| `getSpigetPopularResources` | `src/services/spiget.ts#L95-L100` | `(page=1, size=10)` | 热门 |
-| `toPluginBase`（Hangar） | `src/services/hangar.ts#L4-L20` | `(p: HangarProject) => PluginBase` | 映射 |
-| `searchHangar` | `src/services/hangar.ts#L22-L28` | `(query, page=0, size=10)` | 搜索 |
-| `getHangarProject` | `src/services/hangar.ts#L30-L33` | `(owner, slug)` | 详情 |
-| `getHangarProjectDescription` | `src/services/hangar.ts#L35-L67` | `(owner, slug) => Promise<string>` | 多路径描述 |
-| `getHangarPopular` | `src/services/hangar.ts#L69-L75` | `(page=0, size=10)` | 热门 |
-| `getHangarAuthorProjects` | `src/services/hangar.ts#L77-L83` | `(author, page=0, size=10)` | 作者作品 |
+| `getSpigetResource` | `src/services/spiget.ts#L49-L55` | `(id) => Promise<PluginBase>` | 详情 + 描述解码 |
+| `getSpigetResourceDescription` | `src/services/spiget.ts#L57-L64` | `(id) => Promise<string>` | 旧缓存缺描述时的回退 |
+| `getSpigetAuthorResources` | `src/services/spiget.ts#L66-L72` | `(authorId, page=1, size=10)` | 作者作品 |
+| `getSpigetPopularResources` | `src/services/spiget.ts#L74-L80` | `(page=1, size=10)` | 热门 |
+| `toPluginBase`（Hangar） | `src/services/hangar.ts#L4-L21` | `(p: HangarProject) => PluginBase` | 映射（含 description） |
+| `searchHangar` | `src/services/hangar.ts#L23-L29` | `(query, page=0, size=10)` | 搜索 |
+| `getHangarProject` | `src/services/hangar.ts#L31-L34` | `(owner, slug)` | 详情 |
+| `getHangarProjectDescription` | `src/services/hangar.ts#L36-L48` | `(owner, slug) => Promise<string>` | 单次 pages 请求 |
+| `getHangarPopular` | `src/services/hangar.ts#L50-L56` | `(page=0, size=10)` | 热门 |
+| `getHangarAuthorProjects` | `src/services/hangar.ts#L58-L64` | `(author, page=0, size=10)` | 作者作品 |
 | `hitToPluginBase` | `src/services/modrinth.ts#L4-L20` | `(h: ModrinthSearchHit) => PluginBase` | 搜索映射 |
 | `projectToPluginBase` | `src/services/modrinth.ts#L22-L38` | `(p: ModrinthProject) => PluginBase` | 详情映射 |
 | `searchModrinth` | `src/services/modrinth.ts#L40-L47` | `(query, page=0, size=10)` | 搜索 |
 | `getModrinthProject` | `src/services/modrinth.ts#L49-L68` | `(idOrSlug)` | 详情 + 团队作者补全 |
-| `getModrinthProjectDescription` | `src/services/modrinth.ts#L70-L73` | `(idOrSlug)` | 描述 |
-| `getModrinthPopular` | `src/services/modrinth.ts#L75-L82` | `(page=0, size=10)` | 热门 |
-| `getModrinthTeamMembers` | `src/services/modrinth.ts#L84-L86` | `(teamId)` | 团队成员 |
-| `getModrinthUserProjects` | `src/services/modrinth.ts#L88-L91` | `(userId)` | 用户项目 |
-| `getModrinthCategories` | `src/services/modrinth.ts#L93-L95` | `()` | 分类（未用） |
+| `getModrinthPopular` | `src/services/modrinth.ts#L70-L77` | `(page=0, size=10)` | 热门 |
+| `getModrinthTeamMembers`（内部） | `src/services/modrinth.ts#L79-L81` | `(teamId)` | 团队成员 |
+| `getModrinthUserProjects` | `src/services/modrinth.ts#L83-L86` | `(userId)` | 用户项目 |
 | `SearchAllOptions` | `src/services/search.ts#L7-L9` | `interface` | 错误回调 |
 | `getPlatformPage` | `src/services/search.ts#L14-L16` | `(platform, page) => number` | Spigot 1 基 / 其余 0 基 |
 | `searchAll` | `src/services/search.ts#L19-L55` | `(query, page=1, size=10, options?) => Promise<PluginBase[]>` | 聚合搜索 |
 | `formatDownloads` | `src/services/search.ts#L58-L62` | `(n: number) => string` | 下载量格式化 |
-| `formatRating` | `src/services/search.ts#L65-L68` | `(rating?: number) => number` | 评分（未用） |
-| `getPlatformColor` | `src/services/search.ts#L71-L77` | `(platform) => string` | 平台色（未用） |
-| `getPlatformName` | `src/services/search.ts#L80-L86` | `(platform) => string` | 平台名 |
+| `getPlatformName` | `src/services/search.ts#L64-L70` | `(platform) => string` | 平台名 |
 
 ### 3.1 客户端筛选
 
@@ -160,6 +148,14 @@
 | `resolveDocEntry` | `src/data/docs.ts#L229-L240` | 按路径/文件名解析文档 |
 | `getDocContentByPath` | `src/data/docs.ts#L242-L244` | 读取文档原文 |
 
+### 3.4 Markdown 锚点
+
+| 名称 | 位置 | 签名 | 说明 |
+| --- | --- | --- | --- |
+| `stripMarkdownInline` | `src/utils/markdown.ts#L6-L16` | `(text: string) => string` | 去掉标题里的 Markdown 标记 |
+| `generateHeadingSlug` | `src/utils/markdown.ts#L18-L25` | `(text: string) => string` | 标题转锚点 id |
+| `buildHeadingIdMap` | `src/utils/markdown.ts#L33-L55` | `(content: string) => Map<number, string>` | 按行号预生成 id，同名追加 `-1`/`-2` |
+
 ## 4. AI 服务
 
 | 名称 | 位置 | 签名 | 说明 |
@@ -178,19 +174,16 @@
 | `chatCompletionWithTools` | `src/services/ai.ts#L267-L318` | `(role, messages, tools, opts?) => Promise<{content?, toolCalls?}>` | 工具调用 |
 | `chatCompletionStream` | `src/services/ai.ts#L320-L386` | `(role, messages, opts?) => AsyncGenerator<string>` | SSE 流式 |
 | `chatWithModel` | `src/services/ai.ts#L388-L424` | `(model, messages, opts?) => Promise<string>` | 指定模型 |
-| `translateLines` | `src/services/ai.ts#L426-L545` | `(lines: string[]) => Promise<string[]>` | 按行翻译 |
-| `describeImage` | `src/services/ai.ts#L547-L561` | `(imageUrl: string) => Promise<string>` | 单图描述 |
-| `describeImages` | `src/services/ai.ts#L563-L592` | `(imageUrls: string[]) => Promise<string[]>` | 多图描述（串行） |
-| `PluginTranslation` | `src/services/ai.ts#L594-L598` | `interface` | 插件译文 |
-| `translatePluginInfos` | `src/services/ai.ts#L600-L661` | `(plugins) => Promise<Map<string, PluginTranslation>>` | 名称/简介翻译 |
-| `TextSegment` | `src/services/ai.ts#L653-L660` | `interface` | 文档分段 |
-| `detectContentType` | `src/services/ai.ts#L663-L698` | `(content) => 'yaml'\|'json'\|'properties'\|'html'\|'markdown'\|'text'` | 类型识别 |
-| `extractYamlSegments` | `src/services/ai.ts#L701-L796` | `(content) => TextSegment[]` | YAML 分段 |
-| `extractJsonSegments` | `src/services/ai.ts#L798-L859` | `(content) => TextSegment[]` | JSON 分段 |
-| `extractHtmlMarkdownSegments` | `src/services/ai.ts#L861-L935` | `(content) => TextSegment[]` | HTML/Markdown 分段 |
-| `extractTextSegments` | `src/services/ai.ts#L937-L951` | `(content) => TextSegment[]` | 统一分段 |
-| `translateDocumentStream` | `src/services/ai.ts#L954-L1048` | `(content, onProgress?) => AsyncGenerator<{index, translated}>` | 文档流式翻译 |
-| `translateDocument` | `src/services/ai.ts#L1050-L1062` | `(content, onProgress?) => Promise<string>` | 完整文档翻译 |
+| `describeImages` | `src/services/ai.ts#L426-L455` | `(imageUrls: string[]) => Promise<string[]>` | 多图描述（串行） |
+| `PluginTranslation` | `src/services/ai.ts#L457-L461` | `interface` | 插件译文 |
+| `translatePluginInfos` | `src/services/ai.ts#L463-L514` | `(plugins) => Promise<Map<string, PluginTranslation>>` | 名称/简介翻译 |
+| `TextSegment` | `src/services/ai.ts#L516-L524` | `interface` | 文档分段 |
+| `detectContentType` | `src/services/ai.ts#L526-L562` | `(content) => 'yaml'\|'json'\|'properties'\|'html'\|'markdown'\|'text'` | 类型识别 |
+| `extractYamlSegments` | `src/services/ai.ts#L564-L659` | `(content) => TextSegment[]` | YAML 分段 |
+| `extractJsonSegments` | `src/services/ai.ts#L661-L722` | `(content) => TextSegment[]` | JSON 分段 |
+| `extractHtmlMarkdownSegments` | `src/services/ai.ts#L724-L798` | `(content) => TextSegment[]` | HTML/Markdown 分段 |
+| `extractTextSegments` | `src/services/ai.ts#L800-L815` | `(content) => TextSegment[]` | 统一分段 |
+| `translateDocumentStream` | `src/services/ai.ts#L817-L910` | `(content, onProgress?) => AsyncGenerator<{index, translated}>` | 文档流式翻译 |
 
 ### 4.1 ConcurrencyLimiter 成员
 
@@ -214,94 +207,101 @@
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `categories` | `#L16-L33` | 15 个分类常量 |
-| `serverTypes` | `#L36-L48` | 11 个服务端常量 |
-| `sortOptions` | `#L51-L57` | 5 种排序常量 |
-| `downloadFilters` | `#L60-L66` | 下载量阈值 |
-| `markPlatformError` | `#L104-L107` | 记录失败平台 |
-| `loadPopular` | `#L110-L153` | 热门加载（含失败提示） |
-| `doSearch` | `#L156-L169` | 搜索/加载更多（onError） |
-| `handleSearch` | `#L172-L196` | 搜索入口 + 筛选参数 |
-| `handleRandomRefresh` | `#L199-L202` | 换一批 |
-| `translatePlugins` | `#L205-L221` | AI 翻译列表 |
-| `toggleTranslate` | `#L223-L232` | 切换译文 |
-| `getDisplayInfo` | `#L234-L241` | 展示名/简介 |
-| `filteredPlugins` | `#L244-L250` | `applyPluginFilters` |
+| `markPlatformError` | `#L52-L56` | 记录失败平台 |
+| `loadPopular` | `#L58-L102` | 热门加载（含失败提示、翻译缓存） |
+| `doSearch` | `#L104-L117` | 搜索/加载更多（onError） |
+| `handleSearch` | `#L120-L147` | 搜索入口 + 筛选参数（写入 `loadedQueryRef`） |
+| `handleRandomRefresh` | `#L149-L152` | 换一批 |
+| `translatePlugins` | `#L155-L171` | 只翻译未命中缓存的插件 |
+| `toggleTranslate` | `#L173-L182` | 切换译文 |
+| `getDisplayInfo` | `#L184-L191` | 展示名/简介 |
+| `filteredPlugins` | `#L193-L200` | `applyPluginFilters` |
+| `query / platform effect` | `#L209-L228` | `loadedQueryRef` 搜索去重、`popularKeyRef` 热门指纹去重 |
+
+> 筛选面板的常量与 UI 已迁移到 `src/components/FilterPanel.tsx`。
 
 ### 5.2 PluginDetailPage
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
 | `ApiKeyWarning` | `#L18-L44` | API Key 提示卡片 |
-| `safeDescription` / `safeTranslatedDescription` | `#L69-L76` | DOMPurify 消毒后的描述 |
-| `loadPlugin` | `#L86-L119` | 详情加载、缓存键与 Modrinth 作者 |
-| `handleChat` | `#L121-L172` | AI 对话 |
-| `handleTranslate` | `#L174-L197` | 描述翻译 |
+| `safeDescription` / `safeTranslatedDescription` | `#L73-L79` | DOMPurify 消毒后的描述 |
+| `loadPlugin` | `#L90-L126` | 详情加载、缓存键与 Modrinth 作者；Spigot 描述随详情返回 |
+| `handleChat` | `#L128-L179` | AI 对话 |
+| `handleTranslate` | `#L181-L200` | 描述翻译 |
 
 ### 5.3 DocsPage
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
 | `docsTree` | `src/data/docs.ts#L212-L216` | 自动生成的 72 篇目录树 |
-| `findDocContent` | `#L15-L27` | 递归查内容 |
-| `findDocTitle` | `#L29-L40` | 递归查标题 |
-| `getAllDocsFlat` | `#L43-L64` | 扁平化用于搜索 |
-| `getFirstDocId` | `#L67-L76` | 初始文档 |
-| `generateHeadingSlug` | `#L79-L87` | 标题锚点 |
-| `TreeNode` | `#L98-L163` | 目录树节点组件 |
-| `handleSelectDoc` | `#L184-L207` | 选中并展开父级 |
-| `handleScrollToHeading` | `#L210-L217` | 滚动到锚点 |
-| `markdownComponents` | `#L220-L268` | 代码高亮与标题 id |
-| `handleToggle` | `#L271-L281` | 展开/折叠 |
+| `findDocContent` | `#L16-L29` | 递归查内容 |
+| `findDocTitle` | `#L30-L43` | 递归查标题 |
+| `getAllDocsFlat` | `#L44-L66` | 扁平化用于搜索 |
+| `getFirstDocId` | `#L68-L77` | 初始文档 |
+| `HeadingProps` / `TreeNodeProps` | `#L79-L92` | 标题与树节点类型 |
+| `TreeNode` | `#L94-L160` | 目录树节点组件 |
+| `headingIds` | `#L175` | `buildHeadingIdMap(content)` |
+| `handleSelectDoc` | `#L181-L205` | 选中并展开父级 |
+| `resolveHeadingId` | `#L207-L212` | 按行号取唯一标题 id |
+| `handleScrollToHeading` | `#L214-L222` | 滚动到锚点 |
+| `markdownComponents` | `#L224-L265` | 代码高亮与标题 id |
+| `handleToggle` | `#L267-L277` | 展开/折叠 |
 
-### 5.4 GuidePage
+### 5.4 GuidePage（已拆分）
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `presets` | `#L29-L51` | 三个预设卡片 |
-| `formatFileSize` | `#L54-L58` | 文件大小 |
-| `GuidePage` | `#L60-L74` | 顶层组件 |
-| `PresetSelector` | `#L77-L123` | 预设选择 |
-| `PresetContent` | `#L126-L142` | 预设容器 |
-| `TranslatePreset` | `#L146-L549` | 配置汉化 |
-| `handleFiles` | `#L156-L171` | 读取上传文件 |
-| `translateWithConcurrency` | `#L204-L275` | 200 并发翻译 |
-| `splitIntoChunks` | `#L278-L285` | 15 行分块 |
-| `startTranslation` | `#L288-L325` | 批量翻译 |
-| `downloadFile` | `#L328-L339` | 单文件下载 |
-| `downloadAll` | `#L341-L343` | 全部下载 |
-| `loadDoc` | `#L551-L553` | 统一文档源读取 |
-| `SYSTEM_PROMPT` | `#L556-L572` | 简单开服系统提示（DOC_INDEX_TEXT） |
-| `TOOLS` | `#L575-L593` | `read_docs` 工具 |
-| `SimpleServerPreset` | `#L606-L891` | 简单开服 |
-| `handleSend`（Simple） | `#L674-L825` | 工具调用 + 流式回答 |
-| `resolveServerPath` | `#L896-L918` | 限制相对路径在服务器根目录内 |
-| `readServerFile` | `#L920-L936` | 读取本地文件（只读 FS） |
-| `listServerFiles` | `#L938-L956` | 列目录（只读 FS） |
-| `selectDirectory` | `#L958-L977` | 目录选择 |
-| `AGENT_SYSTEM_PROMPT` | `#L980-L1000` | Agent 系统提示 |
-| `AGENT_TOOLS` | `#L1002-L1055` | 三个工具定义 |
-| `AgentPreset` | `#L1088-L1953` | 运维 Agent |
-| `handleSelectDirectory` | `#L1215-L1220` | 选择路径 |
-| `handleConfirmPath` | `#L1223-L1228` | 确认路径 |
-| `handleImageUpload` | `#L1237-L1251` | 图片转 Base64 |
-| `executeToolCall` | `#L1259-L1345` | 三种工具分发 |
-| `buildMessageContent` | `#L1347-L1363` | 多模态消息 |
-| `calculateContextSize` | `#L1365-L1375` | 上下文字符数 |
-| `compressConversationInternal` | `#L1377-L1418` | 摘要压缩 |
-| `executeAICall` | `#L1420-L1545` | 最多 10 轮工具循环 |
-| `handleRetry` | `#L1547-L1577` | 错误重试 |
-| `handleSend`（Agent） | `#L1579-L1690` | 发送与压缩 |
+| `GuidePage` | `src/pages/GuidePage.tsx#L5-L19` | 顶层组件，仅维护 `activePreset` |
+| `presets` | `src/pages/guide/PresetSelector.tsx#L9-L31` | 三个预设卡片 |
+| `PresetSelector` | `#L34-L81` | 预设选择 |
+| `PresetContent` | `#L83-L99` | 预设容器 |
+| `isTauri` | `src/pages/guide/env.ts#L1-L2` | Tauri 双检测 |
+| `loadDoc` | `src/pages/guide/loadDocs.ts#L4-L6` | 统一文档源读取 |
+| `formatFileSize` | `src/pages/guide/TranslatePreset.tsx#L8-L15` | B/KB/MB/GB/TB |
+| `TranslatePreset` | `#L17-L427` | 配置汉化 |
+| `handleFiles` | `#L27-L45` | 读取上传文件 |
+| `translateWithConcurrency` | `#L75-L148` | 模型并发上限内翻译 |
+| `splitIntoChunks` | `#L149-L158` | 15 行分块 |
+| `startTranslation` | `#L159-L206` | 批量翻译（读取模型 `maxConcurrency`） |
+| `downloadFile` | `#L207-L219` | 单文件下载 |
+| `downloadAll` | `#L220+` | 全部下载 |
+| `SYSTEM_PROMPT` | `src/pages/guide/SimpleServerPreset.tsx#L13-L31` | 简单开服系统提示（DOC_INDEX_TEXT） |
+| `TOOLS` | `#L32-L53` | `read_docs` 工具 |
+| `SimpleServerPreset` | `#L63-L348` | 简单开服 |
+| `markdownComponents` | `#L72-L130` | Markdown/代码块渲染 |
+| `handleSend`（Simple） | `#L131-L348` | 工具调用 + 流式回答 |
+| `resolveServerPath` | `src/pages/guide/AgentPreset.tsx#L16-L38` | 限制相对路径在服务器根目录内 |
+| `readServerFile` | `#L40-L56` | 读取本地文件（只读 FS） |
+| `listServerFiles` | `#L58-L76` | 列目录（只读 FS） |
+| `selectDirectory` | `#L78-L98` | 目录选择 |
+| `AGENT_SYSTEM_PROMPT` | `#L100-L121` | Agent 系统提示 |
+| `AGENT_TOOLS` | `#L122-L176` | 三个工具定义 |
+| `ToolOperation` / `RetryData` / `AgentMessageItem` | `#L178-L207` | Agent 消息类型 |
+| `AgentPreset` | `#L208-L1073` | 运维 Agent |
+| `handleSelectDirectory` | `#L335-L342` | 选择路径 |
+| `handleConfirmPath` | `#L343-L350` | 确认路径 |
+| `handleEditPath` | `#L351-L356` | 修改路径 |
+| `handleImageUpload` | `#L357-L373` | 图片转 Base64 |
+| `removePendingImage` | `#L374-L378` | 移除待发送图片 |
+| `executeToolCall` | `#L379-L466` | 三种工具分发 |
+| `buildMessageContent` | `#L467-L484` | 多模态消息 |
+| `calculateContextSize` | `#L485-L496` | 上下文字符数 |
+| `compressConversationInternal` | `#L497-L539` | 摘要压缩 |
+| `executeAICall` | `#L540-L666` | 最多 10 轮工具循环 |
+| `handleRetry` | `#L667-L698` | 错误重试 |
+| `handleSend`（Agent） | `#L699-L790` | 发送与压缩 |
+| `handleKeyDown` | `#L791+` | Enter 发送 |
 
 ### 5.5 SettingsPage
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
 | `roleLabels` | `#L7-L13` | 5 个角色展示信息 |
-| `secureStorageSupported` | `#L17` | 当前环境是否支持加密存储 |
-| `toggleKeyVisibility` | `#L31-L33` | Key 显隐 |
-| `handleAddModel` | `#L35-L51` | 新增模型 |
-| `resetDefaults` | `#L53-L58` | 调用 `resetAppData` 并刷新 |
+| `secureStorageSupported` | `#L26` | 当前环境是否支持加密存储 |
+| `toggleKeyVisibility` | `#L40-L42` | Key 显隐 |
+| `handleAddModel` | `#L44-L60` | 新增模型 |
+| `resetDefaults` | `#L62-L69` | 调用 `resetAppData` 并刷新 |
 
 ### 5.6 其他页面
 
@@ -320,62 +320,66 @@
 | `navItems` | `#L22-L29` | 6 个导航项 |
 | `Header` | `#L31-L129` | 导航组件 |
 
-### 6.2 SearchBar
+### 6.2 SearchBar + SearchAgentPanel
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `PLUGIN_DOCS` import | `#L9` | 统一插件文档列表 |
-| `pluginDocList` | `#L13` | 插件文档别名 |
-| `SearchFilters` | `#L21-L26` | 组件版筛选类型 |
-| `categoryMap` | `#L46-L62` | 分类映射 |
-| `serverTypes` | `#L65` | 服务端枚举 |
-| `mcVersions` | `#L68` | MC 版本枚举 |
-| `handleSearch` | `#L96-L114` | 普通搜索 |
-| `resetAgent` | `#L117-L122` | 重置 Agent |
-| `startAISearch` | `#L125-L139` | 启动 AI 搜索 |
-| `handleUserReply` | `#L142-L151` | 追问回复 |
-| `loadPluginDoc` | `#L154-L156` | 统一文档源加载 |
-| `runAgent` | `#L159-L440` | Agent 主流程 |
+| `pluginDocList` | `src/components/SearchBar.tsx#L12` | 统一插件文档列表别名 |
+| `categoryMap` | `#L20-L37` | 分类映射 |
+| `serverTypes` | `#L39` | 服务端枚举 |
+| `mcVersions` | `#L42` | MC 版本枚举 |
+| `handleSearch` | `#L70-L89` | 普通搜索 |
+| `resetAgent` | `#L91-L97` | 重置 Agent |
+| `startAISearch` | `#L99-L114` | 启动 AI 搜索 |
+| `handleUserReply` | `#L116-L126` | 追问回复 |
+| `loadPluginDoc` | `#L128-L131` | 统一文档源加载 |
+| `runAgent` | `#L133-L416` | Agent 主流程 |
+| `AgentState` / `SearchStep` / `AgentMessage` | `src/components/SearchAgentPanel.tsx#L8-L20` | Agent 展示类型 |
+| `SearchAgentPanel` | `#L34-L225` | AI 搜索对话面板 |
+| `SearchFilters` | `src/types/index.ts#L157-L162` | 筛选类型（已从 SearchBar 迁出） |
 
-### 6.3 DocsSearch
+### 6.3 DocsSearch + DocsSearchResults
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `generateHeadingSlug` | `#L8-L15` | 锚点 |
-| `stripMarkdown` | `#L18-L53` | 摘要清理 |
-| `DOC_INDEX_TEXT` import | `#L5` | 统一 AI 文档索引 |
-| `SEARCH_DOCS_TOOL` | `#L56-L83` | `search_docs` 工具 |
-| `useDebounce` | `#L107-L121` | 300ms 防抖 |
-| `DocsSearch` | `#L123-L492` | 组件 |
-| `performNormalSearch` | `#L143-L194` | 普通检索评分 |
-| `performAISearch` | `#L197-L251` | AI 检索（resolveDocEntry 映射） |
+| `stripMarkdown` | `src/components/DocsSearch.tsx#L8-L44` | 摘要清理 |
+| `SEARCH_DOCS_TOOL` | `#L46-L73` | `search_docs` 工具 |
+| `DocsSearchProps` | `#L75-L80` | 组件 Props |
+| `useDebounce` | `#L82-L96` | 300ms 防抖 |
+| `DocsSearch` | `#L98-L351` | 组件 |
+| `performNormalSearch` | `#L118-L170` | 普通检索评分 |
+| `performAISearch` | `#L172-L238` | AI 检索（resolveDocEntry 映射） |
+| `handleKeyDown` / `handleSelectResult` / `handleClear` | `#L240-L276` | 交互 |
+| `SearchResult` / `AISearchResult` | `src/components/DocsSearchResults.tsx#L5-L16` | 结果类型 |
+| `DocsSearchResults` | `#L30-L170` | 结果下拉与 AI 回答 |
 
 ### 6.4 AskAIPanel
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `generateHeadingSlug` | `#L25-L32` | 锚点 |
-| `AskAIPanel` | `#L34-L366` | 组件 |
-| `handleSend` | `#L80-L132` | 流式对话 |
-| `handleClear` | `#L134-L142` | 清空 |
-| `handleKeyDown` | `#L144-L149` | Enter 发送 |
-| `handleHeadingClick` | `#L151-L156` | 标题跳转 |
-| `markdownComponents` | `#L158-L235` | Markdown 渲染定制 |
+| `AskAIPanel` | `src/components/AskAIPanel.tsx#L25-L358` | 组件 |
+| `handleSend` | `#L71-L123` | 流式对话 |
+| `handleClear` | `#L125-L133` | 清空 |
+| `handleKeyDown` | `#L135-L140` | Enter 发送 |
+| `handleHeadingClick` | `#L142-L147` | 标题跳转（`generateHeadingSlug` 来自 `utils/markdown`） |
+| `markdownComponents` | `#L149-L235` | Markdown 渲染定制 |
 
 ### 6.5 其他组件
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `platformColors` | `src/components/PluginCard.tsx#L13-L17` | 平台文字色 |
-| `platformBgColors` | `#L19-L23` | 平台背景色 |
-| `PluginCard` | `#L25-L136` | 插件卡片 |
+| `platformColors` | `src/components/PluginCard.tsx#L15-L19` | 平台文字色 |
+| `platformBgColors` | `#L21-L25` | 平台背景色 |
+| `PluginCard` | `#L27-L141` | 插件卡片（支持 `favoritePlugin`） |
+| `categories` / `serverTypes` / `sortOptions` / `downloadFilters` | `src/components/FilterPanel.tsx#L5-L52` | 筛选常量 |
+| `FilterPanel` | `#L65-L191` | 筛选面板 |
 | `platforms` | `src/components/PlatformToggle.tsx#L6-L10` | 平台开关配置 |
 | `PlatformToggle` | `#L12-L37` | 平台开关 |
-| `SpigotIcon` | `src/components/PlatformIcons.tsx#L7-L13` | Spigot 图标 |
-| `HangarIcon` | `#L16-L22` | Hangar 图标 |
-| `ModrinthIcon` | `#L25-L31` | Modrinth 图标 |
-| `MinecraftBlockIcon` | `#L34-L97` | Minecraft 方块图标 |
-| `PlatformIcon` | `#L100-L107` | 图标选择器 |
+| `SpigotIcon` | `src/components/PlatformIcons.tsx#L9-L17` | Spigot 图标 |
+| `HangarIcon` | `#L18-L25` | Hangar 图标 |
+| `ModrinthIcon` | `#L27-L34` | Modrinth 图标 |
+| `MinecraftBlockIcon` | `#L36-L100` | Minecraft 方块图标（`useId`） |
+| `PlatformIcon` | `#L102-L109` | 图标选择器 |
 
 ## 7. Tauri
 

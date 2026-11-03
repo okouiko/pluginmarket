@@ -67,11 +67,6 @@ export async function getModrinthProject(idOrSlug: string): Promise<PluginBase> 
   return plugin
 }
 
-export async function getModrinthProjectDescription(idOrSlug: string): Promise<string> {
-  const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
-  return p.body || ''
-}
-
 export async function getModrinthPopular(page = 0, size = 10): Promise<PluginBase[]> {
   const facets = JSON.stringify([['project_type:plugin']])
   const result = await apiFetch<ModrinthSearchResult>(
@@ -81,15 +76,11 @@ export async function getModrinthPopular(page = 0, size = 10): Promise<PluginBas
   return result.hits.map(hitToPluginBase)
 }
 
-export async function getModrinthTeamMembers(teamId: string): Promise<{ user: { username: string; id: string } }[]> {
+async function getModrinthTeamMembers(teamId: string): Promise<{ user: { username: string; id: string } }[]> {
   return apiFetch<{ user: { username: string; id: string } }[]>('modrinth', `/team/${teamId}/members`)
 }
 
 export async function getModrinthUserProjects(userId: string): Promise<PluginBase[]> {
   const projects = await apiFetch<ModrinthProject[]>('modrinth', `/user/${userId}/projects`)
   return projects.map(projectToPluginBase)
-}
-
-export async function getModrinthCategories(): Promise<{ name: string; icon: string; project_type: string }[]> {
-  return apiFetch<{ name: string; icon: string; project_type: string }[]>('modrinth', '/tag/category')
 }

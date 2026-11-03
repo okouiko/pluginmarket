@@ -8,17 +8,18 @@
 | 类型层 | `src/types/index.ts` | 定义统一插件模型、上游 API 模型、AI 模型、设置与筛选类型 | `PluginBase`、`Platform`、`AIModelConfig`、`AIRole`、`ChatMessage` 等 | 无 | 全部模块 |
 | 状态层 | `src/store/index.ts` | 全局状态、默认配置、localStorage 持久化、选中与派生逻辑 | `useAppStore` | Zustand、类型层 | 页面、组件、`api-base`、`ai`、`search` |
 | 网络基础 | `src/services/api-base.ts` | 环境检测、API Base URL 解析、CORS 代理拼接、统一 `fetch` | `isTauri`、`apiFetch`、`getBaseUrl` | Store、类型层 | 三个平台适配器 |
-| Spigot 适配器 | `src/services/spiget.ts` | Spiget v2 搜索、详情、描述解码、分类、作者、最新/热门 | `searchSpiget`、`getSpigetResource` 等 9 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
-| Hangar 适配器 | `src/services/hangar.ts` | Hangar 项目搜索、详情、描述多路径兜底、热门、作者项目 | `searchHangar`、`getHangarProject` 等 5 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
-| Modrinth 适配器 | `src/services/modrinth.ts` | Modrinth 搜索（facets 限定插件）、详情、描述、热门、团队成员、用户项目、分类 | `searchModrinth`、`getModrinthProject` 等 7 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
+| Spigot 适配器 | `src/services/spiget.ts` | Spiget v2 搜索、详情（含描述解码）、作者项目、热门 | `searchSpiget`、`getSpigetResource` 等 5 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
+| Hangar 适配器 | `src/services/hangar.ts` | Hangar 项目搜索、详情、单次 pages 描述、热门、作者项目 | `searchHangar`、`getHangarProject` 等 5 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
+| Modrinth 适配器 | `src/services/modrinth.ts` | Modrinth 搜索（facets 限定插件）、详情（团队补全作者）、热门、用户项目 | `searchModrinth`、`getModrinthProject` 等 4 个导出函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
 | 聚合搜索 | `src/services/search.ts` | 按启用平台并发搜索、错误回调、分页语义统一、下载量排序、展示格式化 | `searchAll`、`getPlatformPage`、`formatDownloads`、`getPlatformName` | Store、三个适配器 | `MainPage`、`SearchBar`、`PluginCard`、`PluginDetailPage` |
 | 客户端筛选 | `src/services/filters.ts` | 分类/服务端/版本/下载量过滤与排序 | `applyPluginFilters`、`sortPlugins`、`matchesCategory` | 类型层 | `MainPage`、测试 |
 | 文档数据源 | `src/data/docs.ts` | eager glob 全部 72 篇，自动生成目录树、AI 索引与插件文档子集 | `docsTree`、`DOC_CATALOG`、`DOC_INDEX_TEXT`、`PLUGIN_DOCS`、`resolveDocEntry` | Vite glob | `DocsPage`、`DocsSearch`、`GuidePage`、`SearchBar` |
-| AI 服务 | `src/services/ai.ts` | 角色→模型解析、并发限流（Web Locks）、普通/流式/工具调用、批量翻译、文档翻译、图片描述、AI 代理 | `ConcurrencyLimitError`、`chatCompletion`、`chatCompletionStream`、`chatCompletionWithTools`、`translateDocumentStream` 等 | Store、类型层、`BroadcastChannel`、`localStorage` | `SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginDetailPage`、`GuidePage`、`MainPage` |
+| AI 服务 | `src/services/ai.ts` | 角色→模型解析、并发限流（Web Locks）、普通/流式/工具调用、批量翻译、文档翻译、图片描述、AI 代理 | `ConcurrencyLimitError`、`chatCompletion`、`chatCompletionStream`、`chatCompletionWithTools`、`translateDocumentStream` 等 | Store、类型层、`BroadcastChannel`、`localStorage` | `SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginDetailPage`、`pages/guide/*`、`MainPage` |
 | 安全存储 | `src/services/secure-storage.ts` | AES-GCM 加密模型配置，密钥存 IndexedDB，明文旧数据迁移，重置清理 | `saveSecureModels`、`loadModelsWithMigration`、`clearSecureModels`、`isSecureStorageSupported` | Web Crypto、IndexedDB、localStorage | `store/index.ts`、`SettingsPage` |
 | HTML 消毒 | `src/utils/sanitize.ts` | 使用 DOMPurify 消毒 Spigot 等外部 HTML | `sanitizeHtml` | DOMPurify | `PluginDetailPage` |
-| 页面层 | `src/pages/*.tsx` | 路由级业务编排、页面状态、数据加载、AI 功能整合 | 7 个默认导出页面组件 | React、Router、Store、组件、服务层、文档资产 | `App` |
-| 组件层 | `src/components/*.tsx` | 可复用交互与展示；部分组件承载 Agent/检索/对话逻辑 | `Header`、`SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginCard`、`PlatformToggle`、`PlatformIcon` | React、Router、Store、服务层、AI、Markdown | 页面 |
+| Markdown 锚点 | `src/utils/markdown.ts` | 标题 slug、同名标题 id 去重 | `generateHeadingSlug`、`buildHeadingIdMap`、`stripMarkdownInline` | 无 | `DocsPage`、`DocsSearch`、`AskAIPanel` |
+| 页面层 | `src/pages/*.tsx`、`src/pages/guide/*` | 路由级业务编排、页面状态、数据加载、AI 功能整合 | 7 个默认导出页面 + 3 个预设组件 | React、Router、Store、组件、服务层、文档资产 | `App` |
+| 组件层 | `src/components/*.tsx` | 可复用交互与展示；部分组件承载 Agent/检索/对话逻辑 | `Header`、`SearchBar`、`SearchAgentPanel`、`DocsSearch`、`DocsSearchResults`、`AskAIPanel`、`FilterPanel`、`PluginCard`、`PlatformToggle`、`PlatformIcon` | React、Router、Store、服务层、AI、Markdown | 页面 |
 | 文档资产 | `src/assets/docs/**/*.md` | 开服知识库原文（72 篇） | 被 `src/data/docs.ts` eager glob 成字符串 | 无 | `src/data/docs.ts` |
 | 质量工具 | `eslint.config.js`、`*.test.ts` | 静态检查与单元测试 | ESLint flat config、Vitest 3 个测试文件 | ESLint、Vitest | `npm run lint` / `npm run test` |
 | 字体资产 | `src/assets/Minecraft-AE.ttf` | Minecraft 风格字体 | `@font-face` | 无 | `index.css` |
@@ -187,9 +188,9 @@ types  ←  store  ←  services  ←  components  ←  pages  ←  App  ←  ma
 | --- | --- | --- |
 | 页面绕过聚合入口直接调用平台适配器 | `MainPage` 的热门加载、`PluginDetailPage`、`AuthorPage` | 平台相关分页/映射逻辑分散；新增平台需改多处 |
 | `api-base` 依赖 Store | `api-base.ts#L10-L12` | 网络层与全局设置耦合，测试时需初始化 Store |
-| 组件包含业务/Agent 逻辑 | `SearchBar.tsx`、`DocsSearch.tsx`、`AskAIPanel.tsx` | 组件体积大（SearchBar 712 行、DocsSearch 492 行），复用与测试成本高 |
+| 组件包含业务/Agent 逻辑 | `SearchBar.tsx`、`DocsSearch.tsx`、`AskAIPanel.tsx` | 展示层已拆到 `SearchAgentPanel` / `DocsSearchResults`，但 Agent 编排与检索逻辑仍在组件内，复用与测试成本偏高 |
 | 文档索引曾分散在多处 | `DocsPage`、`DocsSearch`、`GuidePage`、`SearchBar` | 已由 `src/data/docs.ts` 统一；仅插件文档关键词命中仍是启发式 |
-| `isTauri` 判定曾不一致 | `api-base.ts` 与 `GuidePage.tsx` | 已统一为同时检测 `__TAURI__` / `__TAURI_INTERNALS__` |
+| `isTauri` 判定曾不一致 | `api-base.ts` 与 `pages/guide/env.ts` | 已统一为同时检测 `__TAURI__` / `__TAURI_INTERNALS__` |
 
 ### 3.3 循环依赖
 
@@ -258,12 +259,12 @@ types  ←  store  ←  services  ←  components  ←  pages  ←  App  ←  ma
 | --- | --- | --- |
 | `App` | 7 个 Page | 路由渲染 |
 | `MainPage` | `searchAll`、`getSpigetPopularResources`、`getHangarPopular`、`getModrinthPopular`、`translatePluginInfos`、`isAIAvailable` | 热门、搜索、AI 翻译 |
-| `PluginDetailPage` | `getSpigetResource`、`getHangarProject`、`getModrinthProject`、`*Description`、`chatCompletionStream`、`translateDocumentStream`、`describeImages` | 详情、AI 对话/翻译、截图理解 |
-| `SearchBar` | `chatCompletionWithTools`、`searchAll`、`isAIAvailable`、`import.meta.glob` 文档 | AI 搜索 Agent |
+| `PluginDetailPage` | `getSpigetResource`、`getHangarProject`、`getHangarProjectDescription`、`getModrinthProject`、`chatCompletionStream`、`translateDocumentStream`、`describeImages` | 详情、AI 对话/翻译、截图理解 |
+| `SearchBar` | `chatCompletionWithTools`、`searchAll`、`isAIAvailable`、`PLUGIN_DOCS` / `getDocContentByPath` | AI 搜索 Agent |
 | `DocsPage` | `findDocContent`、`findDocTitle`、`getAllDocsFlat`、`DocsSearch`、`AskAIPanel` | 文档浏览 |
 | `DocsSearch` | `chatCompletionWithTools`、`getAllDocs` 回调 | 普通/AI 文档检索 |
 | `AskAIPanel` | `chatCompletionStream`、`isAIAvailable` | 文档 AI 问答 |
-| `GuidePage` | `chatCompletion`、`chatCompletionWithTools`、`chatCompletionStream`、Tauri 插件、`import.meta.glob` | 翻译/开服指导/Agent |
+| `pages/guide/*` | `chatCompletion`、`chatCompletionWithTools`、`chatCompletionStream`、Tauri 插件、`getDocContentByPath` | 翻译/开服指导/Agent |
 | `SettingsPage` | Store（模型、角色、CORS） | 配置管理 |
 | `AuthorPage` | 三个平台的作者项目函数 | 作者作品 |
 | `PluginCard` | Store（收藏）、`formatDownloads`、`PlatformIcon` | 卡片展示 |

@@ -10,6 +10,7 @@ import { ChevronRight, ChevronDown, Book, FileText, FolderOpen, Folder, Bot } fr
 import { DocsSearch } from '@/components/DocsSearch'
 import { AskAIPanel } from '@/components/AskAIPanel'
 import { docsTree, type DocItem } from '@/data/docs'
+import { buildHeadingIdMap, generateHeadingSlug } from '@/utils/markdown'
 
 // 递归查找文档内容
 function findDocContent(tree: DocItem[], id: string): string | null {
@@ -75,14 +76,9 @@ function getFirstDocId(tree: DocItem[]): string | null {
   return null
 }
 
-// 生成标题的 slug（用于锚点 id）
-function generateHeadingSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .trim()
+type HeadingProps = {
+  children?: React.ReactNode
+  node?: { position?: { start: { line: number } } }
 }
 
 // 侧边栏树节点组件
@@ -176,6 +172,7 @@ export default function DocsPage() {
 
   const content = useMemo(() => findDocContent(docsTree, selectedId), [selectedId])
   const docTitle = useMemo(() => findDocTitle(docsTree, selectedId) || '文档', [selectedId])
+  const headingIds = useMemo(() => buildHeadingIdMap(content ?? ''), [content])
   
   // 获取所有文档的回调函数
   const getAllDocs = useCallback(() => getAllDocsFlat(docsTree), [])
@@ -205,6 +202,13 @@ export default function DocsPage() {
       })
     }
   }, [])
+
+  // 标题 id 由文档内容预生成，同名标题自动去重
+  const resolveHeadingId = (node: HeadingProps['node'], children: React.ReactNode) => {
+    const line = node?.position?.start.line
+    const id = line !== undefined ? headingIds.get(line) : undefined
+    return id ?? generateHeadingSlug(String(children)) ?? 'section'
+  }
 
   // 处理标题跳转
   const handleScrollToHeading = useCallback((headingId: string) => {
@@ -246,27 +250,19 @@ export default function DocsPage() {
         </code>
       )
     },
-    h1({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h1 id={id}>{children}</h1>
+    h1({ children, node }: HeadingProps) {
+      return <h1 id={resolveHeadingId(node, children)}>{children}</h1>
     },
-    h2({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h2 id={id}>{children}</h2>
+    h2({ children, node }: HeadingProps) {
+      return <h2 id={resolveHeadingId(node, children)}>{children}</h2>
     },
-    h3({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h3 id={id}>{children}</h3>
+    h3({ children, node }: HeadingProps) {
+      return <h3 id={resolveHeadingId(node, children)}>{children}</h3>
     },
-    h4({ children }: { children?: React.ReactNode }) {
-      const text = String(children)
-      const id = generateHeadingSlug(text)
-      return <h4 id={id}>{children}</h4>
+    h4({ children, node }: HeadingProps) {
+      return <h4 id={resolveHeadingId(node, children)}>{children}</h4>
     },
-  }), [darkMode])
+  }), [darkMode, headingIds])
 
   const handleToggle = (id: string) => {
     setExpandedIds((prev) => {
