@@ -26,7 +26,7 @@
 
 ## 3. `MainPage`
 
-文件：[src/pages/MainPage.tsx](../../src/pages/MainPage.tsx)（516 行）
+文件：[src/pages/MainPage.tsx](../../src/pages/MainPage.tsx)（574 行）
 
 ### 3.1 职责
 
@@ -43,10 +43,12 @@
 | `plugins` | `PluginBase[]` | 当前展示数据 |
 | `loading` | `true` | 加载态 |
 | `page` | `1` | 搜索分页 |
-| `selectedCategory` | `'all'` | 分类筛选（**未接入请求**） |
-| `selectedServer` | `'all'` | 服务端筛选（**未接入请求**） |
-| `selectedSort` | `'popular'` | 排序（**未接入请求**） |
-| `selectedDownloads` | `'all'` | 最低下载量（唯一生效的筛选） |
+| `selectedCategory` | `'all'` | 分类筛选，参与客户端过滤 |
+| `selectedServer` | `'all'` | 服务端筛选，参与客户端过滤 |
+| `selectedVersion` | `''` | MC 版本筛选（来自 SearchBar/URL） |
+| `selectedSort` | `'popular'` | 排序方式（热门/最新/更新/下载/评分/名称） |
+| `selectedDownloads` | `'all'` | 最低下载量 |
+| `failedPlatforms` | `Platform[]` | 本次加载失败的平台 |
 | `sidebarOpen` | `false` | 移动端侧边栏 |
 | `serverCollapsed` / `downloadsCollapsed` / `sortCollapsed` | `true/false/true` | 折叠面板 |
 | `translations` | `Map<string, PluginTranslation>` | AI 翻译结果 |
@@ -61,14 +63,20 @@
 | --- | --- |
 | `loadPopular()` | 根据 `enabledPlatforms` 并发请求 Spigot/Hangar/Modrinth 热门；结果按下载量排序；若开启翻译且有模型则调用 `translatePlugins` |
 | `doSearch(q, p)` | `searchAll(q, p, 12)`；`p === 1` 替换列表，否则追加；更新 `page` |
-| `handleSearch(q)` | 空词清空 URL 并退出搜索模式；否则写入 `?q=`、清空列表、从第 1 页搜索 |
+| `handleSearch(q, filters?)` | 空词清空 URL 并退出搜索模式；否则合并 SearchBar 筛选参数写入 `?q&category&server&version`、清空列表、从第 1 页搜索 |
 | `handleRandomRefresh()` | 随机 `randomPage`（1–10），触发 `loadPopular` |
 | `translatePlugins(list)` | 取 `id/name/tag` 调 `translatePluginInfos`，合并进 `translations` |
 | `toggleTranslate()` | 切换译文显示；首次开启立即翻译当前列表 |
 | `getDisplayInfo(plugin)` | 返回原文或 `中文名 — 原名` + 中文简介 |
-| `filteredPlugins` | 仅按 `selectedDownloads` 过滤 |
+| `filteredPlugins` | `applyPluginFilters`：分类/服务端/版本/最低下载量过滤 + 排序 |
 
-### 3.4 数据加载时序
+### 3.4 筛选与错误提示
+
+- 分类、服务端、版本、下载量与排序统一由 [services/filters.ts](../../src/services/filters.ts) 在客户端过滤；SearchBar 的筛选参数会写入 URL 并同步到 MainPage。
+- 分类/服务端匹配基于 `name`、`tag`、`description`、`categories`、`version` 的关键词，属于启发式匹配。
+- `loadPopular` 与 `doSearch` 都会清空 `failedPlatforms`，通过 `searchAll` 的 `onError` 或各热门请求的 catch 收集失败平台，并在结果上方显示“部分平台加载失败”提示。
+
+### 3.5 数据加载时序
 
 ```mermaid
 flowchart TD
@@ -82,7 +90,7 @@ flowchart TD
 
 注意：`randomPage` 变化只在非搜索模式触发加载。
 
-### 3.5 交互与展示
+### 3.6 交互与展示
 
 - Hero 区域用 `grid-rows-[0fr/1fr]` 做高度折叠动画。
 - 搜索框容器宽度从 `max-w-2xl` 过渡到 `max-w-full`。
@@ -92,19 +100,18 @@ flowchart TD
 - “加载更多”仅搜索模式，且 `plugins.length >= page * 12` 时显示。
 - 空态区分“未找到相关插件”与“暂无插件数据”。
 
-### 3.6 已知限制
+### 3.7 已知限制
 
-- 分类、服务端、排序三个筛选 **只改变本地 UI 状态**，没有传入 `searchAll` 或 URL；搜索请求始终使用平台默认排序（Spigot/Hangar 按下载量，Modrinth 按相关度）。
-- `selectedCategory` / `selectedServer` / `selectedSort` 是“装饰性筛选”。
-- 搜索模式仍会展示平台开关与筛选侧边栏，但侧边栏不影响请求。
-- 热门“换一批”存在 offset 二次乘法问题（见 04）。
+- 分类、服务端、排序筛选已接入客户端过滤；搜索请求仍使用平台默认排序，返回后再按本地排序规则重排。
+- 分类/服务端过滤依赖关键词匹配，字段缺失时可能过滤掉部分相关插件。
+- 热门“换一批”的 offset 问题已修复：Hangar/Modrinth 传 0 基页码。
 - 翻译开启后每批插件都会重新请求，未做缓存；翻译失败静默保留原文。
 - `loadPopular` 的 `useCallback` 依赖包含 `translateEnabled`，切换翻译会重新拉取热门。
 - 首次挂载时两个 `useEffect` 都会调用 `loadPopular`；`handleSearch` 直接搜索的同时，`setSearchParams` 又会触发 query effect 再次搜索，存在重复请求。
 
 ## 4. `PluginDetailPage`
 
-文件：[src/pages/PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx)（480 行）
+文件：[src/pages/PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx)（483 行）
 
 ### 4.1 路由参数语义
 
@@ -133,16 +140,16 @@ const fullId = subId ? `${id}/${subId}` : id
 
 ### 4.3 `loadPlugin()`
 
-1. `cacheId = ${platform}-${fullId}`，尝试 `getCachedPlugin(cacheId)`。
+1. 按平台生成与 `plugin.id` 一致的缓存键：Spigot/Modrinth 为 `<platform>-<fullId>`，Hangar 为 `hangar-<owner>-<slug>`，尝试 `getCachedPlugin(cacheId)`。
 2. 按平台分派：
    - Spigot：`getSpigetResource(fullId)` + `getSpigetResourceDescription(fullId)`
    - Hangar：`getHangarProject(id, subId || '')` + `getHangarProjectDescription(...)`
-   - Modrinth：`getModrinthProject(fullId)` + `getModrinthProjectDescription(fullId)`
+   - Modrinth：`getModrinthProject(fullId)` + `getModrinthProjectDescription(fullId)`；`getModrinthProject` 会额外调用团队接口补全作者与作者 ID
 3. 基础信息优先使用缓存。
 4. `cachePlugin(pluginData)` 写回。
 5. 异常只 `console.error`，最终 `plugin` 为 `null` 时显示“插件未找到”。
 
-> 缓存键不一致：Hangar 的 `cacheId` 是 `hangar-owner/slug`，而缓存写入键是 `plugin.id`（`hangar-owner-slug`），因此 Hangar 永远无法命中缓存。
+> 缓存键现已与 `plugin.id` 对齐：Hangar 使用 `hangar-owner-slug`，可正常命中 1 小时缓存。Modrinth 使用 slug 手动进入详情时仍可能因 id 不同而缓存未命中。
 
 ### 4.4 `handleChat()`
 
@@ -183,7 +190,7 @@ const fullId = subId ? `${id}/${subId}` : id
 
 ## 5. `DocsPage`
 
-文件：[src/pages/DocsPage.tsx](../../src/pages/DocsPage.tsx)（565 行）
+文件：[src/pages/DocsPage.tsx](../../src/pages/DocsPage.tsx)（392 行）
 
 ### 5.1 职责
 
@@ -194,20 +201,21 @@ const fullId = subId ? `${id}/${subId}` : id
 
 ### 5.2 文档树
 
-`docsTree`（[L60-L184](../../src/pages/DocsPage.tsx#L60-L184)）有 8 个一级节点：
+`docsTree` 来自 [src/data/docs.ts](../../src/data/docs.ts#L212)，由 `DOC_CATALOG` 自动构建，包含 **全部 72 篇** 文档、9 个一级节点：
 
 | 一级节点 | 子节点 |
 | --- | --- |
 | Java 环境 | Java 环境配置、JVM 启动参数 |
 | 服务端核心 | 选择指南；插件端（Paper/Spigot/Purpur/Folia/Pufferfish/Leaves）；模组端（Forge/NeoForge/Fabric/Quilt）；混合端（Mohist/CatServer/Arclight/Banner）；代理端（BungeeCord/Velocity）；跨平台（Geyser） |
-| 服务器配置 | 权限管理、世界管理、性能优化 |
+| 服务器配置 | 通用配置（权限管理/世界管理/性能优化）；server.properties、bukkit.yml、spigot.yml、paper 配置、purpur.yml 子分组 |
 | 网络配置 | 概述、IPv4、IPv6、云服务器、域名、FRP、P2P |
 | 运维管理 | Linux、Windows、备份、安全 |
 | 插件 | 插件推荐、反作弊 |
 | 模组 | 模组推荐 |
 | 常见问题 | FAQ |
+| 手册目录 | `目录.md` |
 
-共 **38** 篇文档进入侧边栏。仓库实际有 72 篇，`core/config/` 下的 33 篇配置文件详解与 `目录.md` **未**进入 `docsTree`（详见 08）。
+文档节点 id 由路径派生（如 `core-config-server-properties-概述`），标题取首个 H1。新增文件会自动进入树与 AI 索引（详见 08）。
 
 ### 5.3 工具函数
 
@@ -245,11 +253,11 @@ const fullId = subId ? `${id}/${subId}` : id
 
 ### 5.6 依赖
 
-`DocsSearch`、`AskAIPanel`、`useAppStore(darkMode)`、38 个静态 `?raw` 导入、react-markdown、remark-gfm、rehype-raw、react-syntax-highlighter。
+`DocsSearch`、`AskAIPanel`、`useAppStore(darkMode)`、`docsTree`（来自 `src/data/docs.ts`）、react-markdown、remark-gfm、rehype-raw、rehype-sanitize、react-syntax-highlighter。
 
 ## 6. `GuidePage`
 
-文件：[src/pages/GuidePage.tsx](../../src/pages/GuidePage.tsx)（2017 行，项目中最大的文件）
+文件：[src/pages/GuidePage.tsx](../../src/pages/GuidePage.tsx)（1953 行，项目中最大的文件）
 
 ### 6.1 顶层结构
 
@@ -293,7 +301,7 @@ GuidePage
 ### 6.3 `SimpleServerPreset`
 
 - 初始化一条欢迎消息，询问服务器类型、人数、系统。
-- `SYSTEM_PROMPT` 包含完整的 `DOC_INDEX`（38 篇文档路径与说明）与工作流程。
+- `SYSTEM_PROMPT` 包含完整的 `DOC_INDEX_TEXT`（全部 72 篇文档路径与分组）与工作流程。
 - 工具：`read_docs { doc_paths: string[] }`。
 - `handleSend()`：
   1. `chatCompletionWithTools('decision', system + history, TOOLS)`。
@@ -347,9 +355,8 @@ GuidePage
 
 ### 6.5 文档加载与索引
 
-- `docModules = import.meta.glob('../assets/docs/**/*.md', { query: '?raw', import: 'default', eager: false })`（[L562-L563](../../src/pages/GuidePage.tsx#L562-L563)）。
-- `loadDoc(path)` 遍历模块，匹配 `endsWith(path)` 或 `includes('/'+path)`，返回内容或“文档未找到”。
-- `DOC_INDEX` 为字符串常量，列出 38 篇文档；与 `DocsPage.docsTree`、`DocsSearch.DOC_INDEX` 是三套独立索引。
+- `loadDoc(path)` 直接调用 `getDocContentByPath(path)`，不再维护第二套 glob 与 `endsWith` 匹配。
+- `DOC_INDEX_TEXT` 来自 `src/data/docs.ts`，覆盖全部 72 篇；`GuidePage` 与 `DocsSearch` 共用同一份索引。
 
 ### 6.6 Tauri 辅助函数
 
@@ -364,13 +371,14 @@ GuidePage
 
 ## 7. `SettingsPage`
 
-文件：[src/pages/SettingsPage.tsx](../../src/pages/SettingsPage.tsx)（368 行）
+文件：[src/pages/SettingsPage.tsx](../../src/pages/SettingsPage.tsx)（384 行）
 
 ### 7.1 区块
 
 | 区块 | 内容 |
 | --- | --- |
 | CORS 代理 | 输入框绑定 `corsProxy` / `setCorsProxy`，提示“在线版需要，桌面版不需要” |
+| AI 请求代理 | 输入框绑定 `aiProxy` / `setAiProxy`，用于在线版中转模型 POST 请求 |
 | AI 模型配置 | 添加模型表单、模型列表（开关、名称、API Key 显隐、API 地址、最大并发、上下文长度、删除自定义模型）、重置按钮 |
 | AI 角色分配 | 5 个角色各一个 `<select>`，只列出 `enabled` 模型 |
 | 获取 API Key | 智谱与 OpenAI 兼容服务说明与链接 |
@@ -421,8 +429,8 @@ GuidePage
 | --- | --- | --- | --- |
 | MainPage | `enabledPlatforms` | `searchAll`、三个热门函数、`translatePluginInfos`、`SearchBar`、`PlatformToggle`、`PluginCard` | 插件 API |
 | PluginDetailPage | `favorites`、`pluginCache` | 三个详情/描述函数、`chatCompletionStream`、`translateDocumentStream`、`describeImages`、`PlatformIcon` | 插件 API、LLM |
-| DocsPage | `darkMode` | `DocsSearch`、`AskAIPanel`、38 篇 raw 文档 | 无（AI 可选） |
-| GuidePage | `darkMode`、`getModelForRole` | `chatCompletion*`、`import.meta.glob` 文档 | LLM、Tauri FS/Dialog |
-| SettingsPage | `models`、`roleAssignments`、`corsProxy` | 表单、`resetAppData`、`isSecureStorageSupported` | 无 |
+| DocsPage | `darkMode` | `DocsSearch`、`AskAIPanel`、`docsTree`（全部 72 篇） | 无（AI 可选） |
+| GuidePage | `darkMode`、`getModelForRole` | `chatCompletion*`、`src/data/docs.ts` 文档内容 | LLM、Tauri FS/Dialog |
+| SettingsPage | `models`、`roleAssignments`、`corsProxy`、`aiProxy` | 表单、`resetAppData`、`isSecureStorageSupported` | 无 |
 | FavoritesPage | `favorites` | `PluginCard` | 无 |
 | AuthorPage | — | 三个作者函数、`PluginCard` | 插件 API |

@@ -6,16 +6,11 @@ import remarkGfm from 'remark-gfm'
 import { useAppStore } from '@/store'
 import { isAIAvailable, chatCompletionWithTools, ConcurrencyLimitError, type ToolDefinition } from '@/services/ai'
 import { searchAll } from '@/services/search'
+import { PLUGIN_DOCS, getDocContentByPath } from '@/data/docs'
 import type { ChatMessage, PluginBase } from '@/types'
 
-// 插件文档模块 - 使用 Vite 的 import.meta.glob 动态导入（使用相对路径）
-const pluginDocs = import.meta.glob('../assets/docs/plugins/*.md', { query: '?raw', import: 'default' })
-
-// 插件文档列表（文件名和标题）
-const pluginDocList = [
-  { file: '插件推荐.md', title: '插件推荐指南', description: '包含 EssentialsX、LuckPerms、Vault、WorldEdit、WorldGuard、CoreProtect、Dynmap、AuthMe、CMI 等常用插件' },
-  { file: '反作弊.md', title: '反作弊插件指南', description: '包含 NoCheatPlus、Vulcan、Grim、Matrix、Spartan 等反作弊插件' },
-]
+// 插件文档列表来自统一文档目录
+const pluginDocList = PLUGIN_DOCS
 
 interface Props {
   onSearch?: (query: string, filters?: SearchFilters) => void
@@ -156,20 +151,14 @@ export default function SearchBar({ onSearch, initialQuery = '' }: Props) {
   }
 
   // 加载插件文档内容
-  const loadPluginDoc = async (filename: string): Promise<string> => {
-    const key = `/src/assets/docs/plugins/${filename}`
-    const loader = pluginDocs[key]
-    if (loader) {
-      const content = await loader() as string
-      return content
-    }
-    return ''
+  const loadPluginDoc = async (path: string): Promise<string> => {
+    return getDocContentByPath(path) ?? ''
   }
 
   // 运行 Agent - 支持多次搜索
   const runAgent = async (conversationHistory: AgentMessage[]) => {
     // 构建文档列表信息
-    const docListInfo = pluginDocList.map(d => `- ${d.title}: ${d.description}`).join('\n')
+    const docListInfo = pluginDocList.map(d => `- ${d.title}: ${d.path}`).join('\n')
     
     // 如果是第一次对话，尝试加载相关文档
     let docContent = ''
@@ -181,17 +170,17 @@ export default function SearchBar({ onSearch, initialQuery = '' }: Props) {
       for (const doc of pluginDocList) {
         // 检查用户查询是否与文档相关
         if (
-          userQuery.includes('权限') && doc.file === '插件推荐.md' ||
-          userQuery.includes('经济') && doc.file === '插件推荐.md' ||
-          userQuery.includes('传送') && doc.file === '插件推荐.md' ||
-          userQuery.includes('保护') && doc.file === '插件推荐.md' ||
-          userQuery.includes('管理') && doc.file === '插件推荐.md' ||
-          userQuery.includes('基础') && doc.file === '插件推荐.md' ||
-          userQuery.includes('作弊') && doc.file === '反作弊.md' ||
-          userQuery.includes('反作弊') && doc.file === '反作弊.md' ||
-          userQuery.includes('外挂') && doc.file === '反作弊.md' ||
-          userQuery.includes('anticheat') && doc.file === '反作弊.md' ||
-          userQuery.includes('cheat') && doc.file === '反作弊.md'
+          userQuery.includes('权限') && doc.path === 'plugins/插件推荐.md' ||
+          userQuery.includes('经济') && doc.path === 'plugins/插件推荐.md' ||
+          userQuery.includes('传送') && doc.path === 'plugins/插件推荐.md' ||
+          userQuery.includes('保护') && doc.path === 'plugins/插件推荐.md' ||
+          userQuery.includes('管理') && doc.path === 'plugins/插件推荐.md' ||
+          userQuery.includes('基础') && doc.path === 'plugins/插件推荐.md' ||
+          userQuery.includes('作弊') && doc.path === 'plugins/反作弊.md' ||
+          userQuery.includes('反作弊') && doc.path === 'plugins/反作弊.md' ||
+          userQuery.includes('外挂') && doc.path === 'plugins/反作弊.md' ||
+          userQuery.includes('anticheat') && doc.path === 'plugins/反作弊.md' ||
+          userQuery.includes('cheat') && doc.path === 'plugins/反作弊.md'
         ) {
           try {
             // 显示正在阅读文档
@@ -203,7 +192,7 @@ export default function SearchBar({ onSearch, initialQuery = '' }: Props) {
               steps: [{ type: 'reading', content: doc.title }]
             }])
             
-            const content = await loadPluginDoc(doc.file)
+            const content = await loadPluginDoc(doc.path)
             // 只取前 3000 字符，避免 token 过多
             docContent = content.slice(0, 3000)
             

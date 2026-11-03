@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { Search, Sparkles, X, Loader2, FileText, ChevronRight } from 'lucide-react'
 import { chatCompletionWithTools, isAIAvailable, type ToolDefinition } from '@/services/ai'
 import ReactMarkdown from 'react-markdown'
+import { DOC_INDEX_TEXT, resolveDocEntry } from '@/data/docs'
 
 // 生成标题的 slug（与 DocsPage 中保持一致）
 function generateHeadingSlug(text: string): string {
@@ -50,143 +51,6 @@ function stripMarkdown(text: string): string {
     .replace(/\s+/g, ' ')
     .trim()
 }
-
-// 文档索引映射：主题关键词 → 文档路径
-const DOC_INDEX: Record<string, string> = {
-  // Java 环境
-  'java环境配置': 'java/Java环境配置.md',
-  'jdk安装': 'java/Java环境配置.md',
-  '环境变量': 'java/Java环境配置.md',
-  'jvm参数': 'java/JVM启动参数.md',
-  "aikar's flags": 'java/JVM启动参数.md',
-  'zgc': 'java/JVM启动参数.md',
-  '内存分配': 'java/JVM启动参数.md',
-  // 服务端核心
-  '服务端选择': 'core/服务端选择指南.md',
-  '服务端对比': 'core/服务端选择指南.md',
-  'paper': 'core/paper.md',
-  '插件端': 'core/paper.md',
-  'spigot': 'core/spigot.md',
-  'purpur': 'core/purpur.md',
-  'folia': 'core/folia.md',
-  '多线程': 'core/folia.md',
-  'pufferfish': 'core/pufferfish.md',
-  'leaves': 'core/leaves.md',
-  'forge': 'core/forge.md',
-  '模组端': 'core/forge.md',
-  'neoforge': 'core/neoforge.md',
-  'fabric': 'core/fabric.md',
-  'quilt': 'core/quilt.md',
-  'mohist': 'core/mohist.md',
-  '混合端': 'core/mohist.md',
-  'catserver': 'core/catserver.md',
-  'arclight': 'core/arclight.md',
-  'banner': 'core/banner.md',
-  'bungeecord': 'core/bungeecord.md',
-  '群组服': 'core/bungeecord.md',
-  'velocity': 'core/velocity.md',
-  '代理': 'core/velocity.md',
-  'geyser': 'core/geyser.md',
-  '基岩版': 'core/geyser.md',
-  '跨平台': 'core/geyser.md',
-  // 配置文件
-  'server.properties': 'core/config/server-properties/概述.md',
-  'bukkit.yml': 'core/config/bukkit-yml/概述.md',
-  'spigot.yml': 'core/config/spigot-yml/概述.md',
-  'paper配置': 'core/config/paper-yml/概述.md',
-  'purpur.yml': 'core/config/purpur-yml/概述.md',
-  '权限': 'config/权限管理.md',
-  'luckperms': 'config/权限管理.md',
-  '世界管理': 'config/世界管理.md',
-  'multiverse': 'config/世界管理.md',
-  '性能优化': 'config/性能优化.md',
-  'tps': 'config/性能优化.md',
-  // 网络
-  '联机': 'network/01-概述与前置知识.md',
-  '公网': 'network/01-概述与前置知识.md',
-  '端口映射': 'network/01-概述与前置知识.md',
-  'ipv4': 'network/02-IPv4公网开服.md',
-  '公网ip': 'network/02-IPv4公网开服.md',
-  'ipv6': 'network/03-IPv6公网开服.md',
-  '云服务器': 'network/04-云服务器开服.md',
-  '面板服': 'network/04-云服务器开服.md',
-  '域名': 'network/05-域名绑定与安全.md',
-  'srv': 'network/05-域名绑定与安全.md',
-  'frp': 'network/FRP内网穿透.md',
-  '内网穿透': 'network/FRP内网穿透.md',
-  'sakura': 'network/FRP内网穿透.md',
-  'chmlfrp': 'network/FRP内网穿透.md',
-  'p2p': 'network/P2P联机.md',
-  'opl': 'network/P2P联机.md',
-  'openp2p': 'network/P2P联机.md',
-  // 运维
-  'linux': 'ops/Linux运维.md',
-  '运维': 'ops/Linux运维.md',
-  'systemd': 'ops/Linux运维.md',
-  'windows': 'ops/Windows运维.md',
-  'bat': 'ops/Windows运维.md',
-  '备份': 'ops/备份与恢复.md',
-  '恢复': 'ops/备份与恢复.md',
-  '安全': 'ops/安全防护.md',
-  '防护': 'ops/安全防护.md',
-  'ddos': 'ops/安全防护.md',
-  // 插件/模组
-  '插件推荐': 'plugins/插件推荐.md',
-  'essentialsx': 'plugins/插件推荐.md',
-  '反作弊': 'plugins/反作弊.md',
-  'anticheat': 'plugins/反作弊.md',
-  '模组推荐': 'mods/模组推荐.md',
-  // FAQ
-  '常见问题': 'faq/常见问题.md',
-  'faq': 'faq/常见问题.md',
-  '报错': 'faq/常见问题.md',
-}
-
-// 生成文档索引描述（供 AI 参考）
-const DOC_INDEX_DESC = `可用文档索引（关键词 → 文档路径）：
-- Java环境配置、JDK安装、环境变量 → java/Java环境配置.md
-- JVM参数、Aikar's Flags、ZGC、内存分配 → java/JVM启动参数.md
-- 服务端选择、对比 → core/服务端选择指南.md
-- Paper、插件端 → core/paper.md
-- Spigot → core/spigot.md
-- Purpur → core/purpur.md
-- Folia、多线程 → core/folia.md
-- Pufferfish → core/pufferfish.md
-- Leaves → core/leaves.md
-- Forge、模组端 → core/forge.md
-- NeoForge → core/neoforge.md
-- Fabric → core/fabric.md
-- Quilt → core/quilt.md
-- Mohist、混合端 → core/mohist.md
-- CatServer → core/catserver.md
-- Arclight → core/arclight.md
-- Banner → core/banner.md
-- BungeeCord、群组服 → core/bungeecord.md
-- Velocity、代理 → core/velocity.md
-- Geyser、基岩版、跨平台 → core/geyser.md
-- server.properties → core/config/server-properties/概述.md
-- bukkit.yml → core/config/bukkit-yml/概述.md
-- spigot.yml → core/config/spigot-yml/概述.md
-- paper配置 → core/config/paper-yml/概述.md
-- purpur.yml → core/config/purpur-yml/概述.md
-- 权限、LuckPerms → config/权限管理.md
-- 世界管理、Multiverse → config/世界管理.md
-- 性能优化、TPS → config/性能优化.md
-- 联机、公网、端口映射 → network/01-概述与前置知识.md
-- IPv4、公网IP → network/02-IPv4公网开服.md
-- IPv6 → network/03-IPv6公网开服.md
-- 云服务器、面板服 → network/04-云服务器开服.md
-- 域名、SRV、安全 → network/05-域名绑定与安全.md
-- FRP、内网穿透、Sakura、ChmlFRP → network/FRP内网穿透.md
-- P2P、OPL、OpenP2P、联机 → network/P2P联机.md
-- Linux、运维、systemd → ops/Linux运维.md
-- Windows、运维、bat → ops/Windows运维.md
-- 备份、恢复 → ops/备份与恢复.md
-- 安全、防护、DDoS → ops/安全防护.md
-- 插件推荐、EssentialsX → plugins/插件推荐.md
-- 反作弊、AntiCheat → plugins/反作弊.md
-- 模组推荐 → mods/模组推荐.md
-- 常见问题、FAQ、报错 → faq/常见问题.md`
 
 // search_docs 工具定义
 const SEARCH_DOCS_TOOL: ToolDefinition = {
@@ -338,12 +202,10 @@ export function DocsSearch({ onSelectDoc, getAllDocs, onScrollToHeading }: DocsS
     setAIResult(null)
 
     try {
-      const allDocs = getAllDocs()
-      
-      // 使用精简的文档索引，而不是完整文档列表
+      // 使用统一的文档索引，而不是完整文档列表
       const prompt = `你是一个 Minecraft 服务器文档助手。用户正在搜索相关文档。
 
-${DOC_INDEX_DESC}
+${DOC_INDEX_TEXT}
 
 用户问题：${searchQuery}
 
@@ -363,39 +225,16 @@ ${DOC_INDEX_DESC}
           summary?: string
         }
         
-        // 匹配文档 ID
+        // 通过统一目录解析文档路径
         const recommendedDocs = (toolResult.results || []).map(rec => {
-          // 通过路径匹配文档
-          const doc = allDocs.find(d => {
-            const docPath = d.path.join('/') + '/' + d.title
-            return docPath.toLowerCase().includes(rec.doc_path.toLowerCase().replace('.md', '')) ||
-                   rec.doc_path.toLowerCase().includes(d.title.toLowerCase())
-          })
-          // 也尝试通过索引映射匹配
-          if (!doc) {
-            const indexPath = Object.entries(DOC_INDEX).find(([, path]) =>
-              path.toLowerCase() === rec.doc_path.toLowerCase()
-            )
-            if (indexPath) {
-              const matchedDoc = allDocs.find(d =>
-                d.id.toLowerCase().includes(indexPath[0]) ||
-                d.title.toLowerCase().includes(indexPath[0])
-              )
-              if (matchedDoc) {
-                return {
-                  id: matchedDoc.id,
-                  title: matchedDoc.title,
-                  reason: rec.relevance
-                }
-              }
-            }
-          }
+          const entry = resolveDocEntry(rec.doc_path)
+          if (!entry) return null
           return {
-            id: doc?.id || '',
-            title: doc?.title || rec.doc_path,
+            id: entry.id,
+            title: entry.title,
             reason: rec.relevance
           }
-        }).filter(r => r.id)
+        }).filter((doc): doc is { id: string; title: string; reason: string } => !!doc)
 
         setAIResult({
           answer: toolResult.summary || '请查看推荐的文档',
@@ -409,7 +248,7 @@ ${DOC_INDEX_DESC}
     } finally {
       setIsSearching(false)
     }
-  }, [getAllDocs, isAIConfigured])
+  }, [isAIConfigured])
 
   // 监听防抖后的查询变化（普通搜索）
   useEffect(() => {

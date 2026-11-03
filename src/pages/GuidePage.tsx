@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { ArrowLeft, Upload, Download, FileText, Check, X, Loader2, AlertTriangle, Send, FolderOpen, Image as ImageIcon, Edit2, Gamepad2, Rocket, Bot, Search, Clock, XCircle, CheckCircle, Construction, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Upload, Download, FileText, Check, X, Loader2, AlertTriangle, Send, FolderOpen, Image as ImageIcon, Edit2, Gamepad2, Rocket, Bot, Search, XCircle, CheckCircle, RefreshCw } from 'lucide-react'
 import { chatCompletion, chatCompletionWithTools, chatCompletionStream, ConcurrencyLimitError, type ToolDefinition } from '@/services/ai'
+import { DOC_INDEX_TEXT, getDocContentByPath } from '@/data/docs'
 import { useAppStore } from '@/store'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -137,19 +138,6 @@ function PresetContent({ preset, onBack }: { preset: PresetType; onBack: () => v
       {preset === 'translate' && <TranslatePreset />}
       {preset === 'simple' && <SimpleServerPreset />}
       {preset === 'agent' && <AgentPreset />}
-    </div>
-  )
-}
-
-// 占位预设（开发中）
-function PlaceholderPreset({ title }: { title: string }) {
-  return (
-    <div className="text-center py-20">
-      <div className="mb-6 flex justify-center">
-        <Construction className="w-16 h-16 text-mc-gold" />
-      </div>
-      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">{title}</h2>
-      <p className="text-gray-600 dark:text-gray-400">功能开发中...</p>
     </div>
   )
 }
@@ -559,68 +547,17 @@ function TranslatePreset() {
   )
 }
 
-// 预加载所有文档的 raw 内容 - 使用相对路径
-const docModules = import.meta.glob('../assets/docs/**/*.md', { query: '?raw', import: 'default', eager: false })
-
-// 加载文档内容
+// 从统一文档目录读取内容
 async function loadDoc(path: string): Promise<string> {
-  // 遍历所有模块查找匹配的路径
-  for (const [key, loader] of Object.entries(docModules)) {
-    if (key.endsWith(path) || key.includes(`/${path}`)) {
-      return await loader() as string
-    }
-  }
-  
-  return `文档 ${path} 未找到`
+  return getDocContentByPath(path) ?? `文档 ${path} 未找到`
 }
-
-// 文档索引（提供给 AI 的系统提示中）
-const DOC_INDEX = `可用文档列表：
-- java/Java环境配置.md — Java 环境安装配置
-- java/JVM启动参数.md — JVM 参数优化、Aikar's Flags
-- core/服务端选择指南.md — 各类服务端对比选择
-- core/paper.md — Paper 服务端
-- core/spigot.md — Spigot 服务端
-- core/purpur.md — Purpur 服务端
-- core/folia.md — Folia 多线程服务端
-- core/pufferfish.md — Pufferfish 服务端
-- core/leaves.md — Leaves 服务端
-- core/forge.md — Forge 模组端
-- core/neoforge.md — NeoForge 模组端
-- core/fabric.md — Fabric 模组端
-- core/quilt.md — Quilt 模组端
-- core/mohist.md — Mohist 混合端
-- core/catserver.md — CatServer 混合端
-- core/arclight.md — Arclight 混合端
-- core/banner.md — Banner 混合端
-- core/bungeecord.md — BungeeCord 代理端
-- core/velocity.md — Velocity 代理端
-- core/geyser.md — Geyser 跨平台
-- config/权限管理.md — 权限系统配置
-- config/世界管理.md — 世界管理
-- config/性能优化.md — 性能优化
-- network/01-概述与前置知识.md — 网络基础
-- network/02-IPv4公网开服.md — IPv4 公网开服
-- network/03-IPv6公网开服.md — IPv6 公网开服
-- network/04-云服务器开服.md — 云服务器开服
-- network/05-域名绑定与安全.md — 域名与安全
-- network/FRP内网穿透.md — FRP 内网穿透
-- network/P2P联机.md — P2P 联机
-- ops/Linux运维.md — Linux 运维
-- ops/Windows运维.md — Windows 运维
-- ops/备份与恢复.md — 备份恢复
-- ops/安全防护.md — 安全防护
-- plugins/插件推荐.md — 插件推荐
-- plugins/反作弊.md — 反作弊
-- mods/模组推荐.md — 模组推荐
-- faq/常见问题.md — 常见问题`
 
 // 系统提示
 const SYSTEM_PROMPT = `你是一个 Minecraft 开服助手。你的任务是帮助用户从零开始搭建 Minecraft 服务器。
 
 你可以使用 read_docs 工具来阅读开服手册中的文档，获取最新的配置指南和教程。
 
-${DOC_INDEX}
+${DOC_INDEX_TEXT}
 
 工作流程：
 1. 了解用户需求（服务器类型、人数、系统等）
@@ -1059,7 +996,7 @@ const AGENT_SYSTEM_PROMPT = `你是一个 Minecraft 服务器运维 Agent。你�
 - 给出的修改建议要具体到配置项和值
 - 使用中文回答
 
-${DOC_INDEX}`
+${DOC_INDEX_TEXT}`
 
 // Agent Tools 定义
 const AGENT_TOOLS: ToolDefinition[] = [
@@ -1490,7 +1427,6 @@ ${conversationText}
     const systemPrompt = systemPromptOverride || AGENT_SYSTEM_PROMPT
 
     // 构建完整的消息历史（用于工具调用循环）
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let fullMessages: any[] = [
       { role: 'system', content: systemPrompt },
       ...chatHistory

@@ -39,7 +39,12 @@ server.proxy = {
 签名：
 
 ```ts
-async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit): Promise<T>
+async function apiFetch<T>(
+  platform: Platform,
+  path: string,
+  init?: RequestInit,
+  timeoutMs = 15000,
+): Promise<T>
 ```
 
 行为：
@@ -47,14 +52,16 @@ async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit)
 1. 调用 `getBaseUrl(platform)` 取得基础地址。
 2. 开发或 Tauri 环境：`url = base + path`。
 3. 生产 Web 环境：忽略 `base`，重新读取 `corsProxy`，拼接 `proxy + encodeURIComponent(directUrl + path)`。
-4. `fetch` 默认头 `Accept: application/json`，允许 `init.headers` 覆盖。
-5. 非 2xx 抛 `Error("API Error: <status> <statusText>")`。
-6. 成功返回 `res.json()`，不做运行时结构校验。
+4. 创建内部 `AbortController`，默认 **15 秒超时**；同时监听调用方传入的 `init.signal`。
+5. `fetch` 默认头 `Accept: application/json`，允许 `init.headers` 覆盖。
+6. 非 2xx 抛 `Error("API Error: <status> <statusText>")`。
+7. 超时抛 `API Error: 请求超时（15000ms）`，外部取消抛 `API Error: 请求已取消`。
+8. 成功返回 `res.json()`，不做运行时结构校验。
 
 注意事项：
 
 - 生产分支重复计算了 base 逻辑，`getBaseUrl` 在该分支的返回值未被使用。
-- 没有 `AbortController`、超时、重试、退避或速率限制。
+- 没有重试、退避或速率限制。
 - 没有响应缓存；缓存只在 `PluginDetailPage` 经 Store 做一层。
 - `corsProxy` 必须是“前缀 + 完整 URL 编码”的形式，例如 `https://api.allorigins.win/raw?url=`。
 
@@ -164,7 +171,7 @@ flowchart TD
 | 函数 | 输入 | 要点 |
 | --- | --- | --- |
 | `hitToPluginBase(h)` | 搜索命中 | `id = modrinth-<project_id>`、`platformId = project_id`、`author = h.author`、`version = versions 最后一项`、`lastUpdate = date_modified`、`images = gallery`、`sourceUrl = https://modrinth.com/plugin/<slug>` |
-| `projectToPluginBase(p)` | 项目详情 | `id = modrinth-<id>`、`author = ''`（详情接口不直接给作者名）、`lastUpdate = updated`、`images = gallery.map(url)`、`sourceUrl` 同上 |
+| `projectToPluginBase(p)` | 项目详情 | `id = modrinth-<id>`、`author = ''`（详情接口不直接给作者名，`getModrinthProject` 再补全）、`lastUpdate = updated`、`images = gallery.map(url)`、`sourceUrl` 同上 |
 
 ### 4.2 导出函数
 
@@ -174,7 +181,7 @@ flowchart TD
 | `getModrinthProject` | `(idOrSlug)` | `/project/<idOrSlug>` | 详情 |
 | `getModrinthProjectDescription` | `(idOrSlug) => Promise<string>` | `/project/<idOrSlug>` | 返回 `body` |
 | `getModrinthPopular` | `(page = 0, size = 10)` | `/search?...&index=downloads&facets` | 只限定 `project_type:plugin` |
-| `getModrinthTeamMembers` | `(teamId)` | `/team/<teamId>/members` | **当前未被 UI 使用** |
+| `getModrinthTeamMembers` | `(teamId)` | `/team/<teamId>/members` | 详情作者补全 |
 | `getModrinthUserProjects` | `(userId)` | `/user/<userId>/projects` | 作者页 |
 | `getModrinthCategories` | `()` | `/tag/category` | **当前未被 UI 使用** |
 
@@ -187,13 +194,24 @@ const facets = JSON.stringify([
 ])
 ```
 
-### 4.3 作者缺失问题
+### 4.3 作者补全
 
-搜索命中包含 `author`，但详情 `ModrinthProject` 不含作者名。`projectToPluginBase` 把 `author` 设为空串，导致：
+搜索命中包含 `author`，但详情 `ModrinthProject` 不含作者名。`getModrinthProject` 在映射后调用 `getModrinthTeamMembers(p.team)`，取第一个带 `username` 的成员补全 `author` 与 `authorId`：
 
-- 详情页作者链接渲染为空白文字；
-- 链接跳到 `/author/modrinth/`（空 authorId）；
-- 作者页加载 `/user//projects`，请求异常后显示“暂无作品”。
+```ts
+const plugin = projectToPluginBase(p)
+if (p.team) {
+  const members = await getModrinthTeamMembers(p.team)
+  const owner = members.find(m => m.user?.username)?.user
+  if (owner) {
+    plugin.author = owner.username
+    plugin.authorId = owner.id
+  }
+}
+```
+
+- 团队接口失败时保持空作者，不阻塞详情。
+- `getModrinthUserProjects` 仍不补全作者名（作者页卡片可能显示空作者）。
 
 ## 5. 聚合搜索 `search.ts`
 
@@ -202,38 +220,54 @@ const facets = JSON.stringify([
 ### 5.1 `searchAll`
 
 ```ts
-export async function searchAll(query: string, page = 1, size = 10): Promise<PluginBase[]>
+export async function searchAll(
+  query: string,
+  page = 1,
+  size = 10,
+  options: SearchAllOptions = {},
+): Promise<PluginBase[]>
 ```
 
 流程：
 
 1. 从 `useAppStore.getState().enabledPlatforms` 读取启用平台。
-2. 对每个启用平台构造 Promise：
-   - Spigot：`searchSpiget(query, page, size)`
-   - Hangar：`searchHangar(query, page - 1, size)`
-   - Modrinth：`searchModrinth(query, (page - 1) * size, size)`
-3. 每个 Promise 都 `.catch(() => [])`，单平台失败返回空数组。
+2. 用 `getPlatformPage(platform, page)` 统一分页语义：
+   - Spigot：1 基页码，返回 `page`
+   - Hangar / Modrinth：0 基页码，返回 `page - 1`
+3. 对每个启用平台构造 Promise，失败时调用 `options.onError(platform, error)` 并返回 `[]`。
 4. `Promise.all` 合并结果。
 5. 按 `downloads` 降序排序，**不做跨平台去重**。
 
-### 5.2 分页语义与缺陷
+### 5.2 分页语义
 
-| 平台 | `searchAll` 传入 | 适配器内部 offset | 实际效果 |
+| 平台 | `getPlatformPage` | 适配器内部 offset | 实际效果 |
 | --- | --- | --- | --- |
 | Spigot | `page` | `page`（1 基） | 正确 |
 | Hangar | `page - 1` | `(page-1) * size` | 正确 |
-| Modrinth | `(page - 1) * size` | `(page-1) * size * size` | **错误**：第 2 页起跳过 `size*(size-1)` 条 |
+| Modrinth | `page - 1` | `(page-1) * size` | 正确 |
 
-`MainPage` 的“换一批”也有相同的二次偏移问题：
+`MainPage` 的热门“换一批”同样传 0 基页码：
 
 ```ts
-getHangarPopular((p - 1) * 10, 10)   // offset = (p-1) * 100
-getModrinthPopular((p - 1) * 10, 10) // offset = (p-1) * 100
+getHangarPopular(p - 1, 10)
+getModrinthPopular(p - 1, 10)
 ```
 
-因此随机页 `p=2` 实际请求 offset 100，而不是 10。该问题记录在 [11](11-conventions-and-known-issues.md#3-已知问题清单)。
+该逻辑由 `src/services/search.test.ts` 覆盖。
 
-### 5.3 工具函数
+### 5.3 客户端筛选 `filters.ts`
+
+文件：[src/services/filters.ts](../../src/services/filters.ts)
+
+| 导出 | 作用 |
+| --- | --- |
+| `matchesCategory(plugin, category)` | 按名称/简介/描述/分类关键词匹配分类 |
+| `matchesServerType(plugin, serverType)` | 匹配 paper/spigot/folia 等服务端关键词 |
+| `matchesVersion(plugin, version)` | 匹配 MC 版本 |
+| `sortPlugins(plugins, sortBy)` | 支持 popular/newest/updated/downloads/rating/name/relevance |
+| `applyPluginFilters(plugins, filters)` | 组合过滤 + 排序，供 MainPage 使用 |
+
+### 5.4 工具函数
 
 | 函数 | 签名 | 行为 | 使用方 |
 | --- | --- | --- | --- |
@@ -286,11 +320,11 @@ getModrinthPopular((p - 1) * 10, 10) // offset = (p-1) * 100
 
 | 场景 | 当前行为 | 用户感知 |
 | --- | --- | --- |
-| 单平台搜索失败 | `searchAll` 吞掉错误，返回空数组 | 结果变少，无提示 |
+| 单平台搜索失败 | `searchAll` 通过 `onError` 通知调用方，返回空数组 | MainPage 显示失败平台提示 |
 | 详情请求失败 | `loadPlugin` catch 后仅 `console.error` | 页面显示“插件未找到” |
 | 描述请求失败 | Hangar 有兜底；Spigot/Modrinth 直接抛出，被详情页 catch | 描述为空 |
-| HTTP 非 2xx | 抛 `API Error` | 详情页兜底；搜索静默 |
-| 网络超时 | 无超时配置，浏览器默认等待 | 可能长时间 loading |
+| HTTP 非 2xx | 抛 `API Error` | 详情页兜底；搜索展示平台失败提示 |
+| 网络超时 | 默认 15 秒后 abort | 抛出超时错误并进入失败提示 |
 | CORS 代理不可用 | 请求失败 | 结果为空或详情缺失 |
 
-服务层没有统一日志、错误码或重试策略。若需要增强，建议在 `apiFetch` 增加 `AbortSignal`、超时装饰器和可选的有限重试。
+服务层没有统一日志、错误码或重试策略。`apiFetch` 已提供超时与 `AbortSignal`，如需进一步增强可增加有限重试与错误码。

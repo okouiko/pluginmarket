@@ -20,9 +20,12 @@
 | `npm run dev` | `vite` | 启动 Web 开发服务器，默认 `http://localhost:5173` |
 | `npm run build` | `tsc -b && vite build` | TypeScript 类型检查 + 生产构建，输出 `dist/` |
 | `npm run preview` | `vite preview` | 本地预览 `dist/` |
+| `npm run lint` | `eslint .` | ESLint 静态检查 |
+| `npm test` | `vitest run` | 单元测试 |
+| `npm run typecheck` | `tsc -b` | 仅类型检查 |
 | `npm run tauri` | `tauri` | Tauri CLI 透传（`npm run tauri dev` / `npm run tauri build`） |
 
-仓库 **没有** `test`、`lint`、`format` 脚本；也没有 ESLint / Prettier / Vitest / Jest 配置。
+仓库使用 **ESLint flat config**（`eslint.config.js`）与 **Vitest**（3 个测试文件），没有 Prettier 配置。
 
 ## 3. 本地开发
 
@@ -161,7 +164,7 @@ concurrency:
 
 1. `actions/checkout@v4`
 2. `actions/setup-node@v4`（Node 20，npm 缓存）
-3. **删除 `package-lock.json`** 后 `npm install`
+3. `npm ci`（严格按 `package-lock.json` 安装）
 4. `npm run build`
 5. `actions/configure-pages@v4`
 6. `actions/upload-pages-artifact@v3` 上传 `./dist`
@@ -215,7 +218,7 @@ on:
 - Node 20 + npm 缓存。
 - `dtolnay/rust-toolchain@stable`，安装对应 target。
 - Linux 安装 WebKit/GTK 依赖（见第 1 节）。
-- **删除 `package-lock.json`** 后 `npm install`。
+- `npm ci`（严格按 `package-lock.json` 安装）。
 - `npx tauri build --target <target>`。
 - 按平台上传 artifact。
 - `release` job 下载全部 artifact，用 `softprops/action-gh-release@v2` 创建非草稿 Release，自动生成 release notes，附带所有安装包。
@@ -251,20 +254,13 @@ git push origin v1.0.3
 
 | 项目 | 状态 |
 | --- | --- |
-| TypeScript 类型检查 | `npm run build` 中的 `tsc -b` |
-| 单元测试 | 无 |
+| TypeScript 类型检查 | `npm run typecheck` / `npm run build` |
+| 单元测试 | `npm test`（Vitest，9 个用例） |
 | 集成 / E2E 测试 | 无 |
-| ESLint / Prettier | 无 |
+| ESLint | `npm run lint`（flat config，0 error） |
+| Prettier | 无 |
 | 依赖审计 | 无 CI 步骤 |
 | 提交钩子 | 无 |
-
-建议至少补充：
-
-```bash
-npm run lint      # ESLint
-npm run typecheck # tsc --noEmit
-npm test          # Vitest
-```
 
 ## 10. 故障排查
 
@@ -274,13 +270,13 @@ npm test          # Vitest
 | 开发环境 API 404 | Vite 代理未启动或路径拼错 | 检查 `vite.config.ts` 与 `api-base.ts` |
 | AI 提示 401/403 | API Key 错误、过期或无权限 | 在设置页检查 Key 与 `baseUrl` |
 | AI 提示“未配置模型” | 角色未分配或模型被禁用 | 设置页“AI 角色分配”选择启用模型 |
-| AI 并发提示 | 同一模型被多标签页/多任务占用 | 等待、提高 `maxConcurrency` 或改用其他模型（需刷新页面） |
+| AI 并发提示 | 同一模型被多标签页/多任务占用 | 等待、提高 `maxConcurrency`（无需刷新）或改用其他模型 |
 | Tauri 窗口空白 | `devUrl` 端口与 Vite 不一致；`beforeDevCommand` 失败 | 检查 5173 端口占用与终端输出 |
 | Tauri 端 API 走代理/报 CORS | 环境检测未识别 Tauri；或 CSP 阻止连接 | 确认 `isTauri()` 同时检测 `__TAURI_INTERNALS__`；检查 `tauri.conf.json` 的 `connect-src`（见 09） |
 | Agent 读不到文件 | 目录不在 FS scope 白名单 / `serverPath` 错误 / 路径越界 | 将服务器放在 HOME、DOCUMENTS、DESKTOP、DOWNLOAD 下；检查路径与安全提示 |
 | Linux 打包失败 | 缺少 WebKit/GTK 依赖 | 安装第 1 节列出的系统包 |
 | `npm run build` 类型错误 | TS strict 模式 | 按错误修复；`noUnusedLocals` / `noUnusedParameters` 为 false，未使用变量不会报错 |
-| CI 安装依赖与本地不一致 | CI 删除 `package-lock.json` | 本地也 `rm -f package-lock.json && npm install`，或修改 CI 使用 `npm ci` |
+| CI 安装依赖失败 | lockfile 与 package.json 不一致 | 本地执行 `npm install` 更新 `package-lock.json` 并提交 |
 | Pages 部署 404 | Pages Source 不是 GitHub Actions | 在仓库设置中切换 |
 | Release 未生成 | 标签未以 `v` 开头或构建失败 | 检查 tag 与 Actions 日志 |
 
@@ -294,16 +290,10 @@ npm test          # Vitest
 | `src-tauri/tauri.conf.json` | `"version": "1.0.2"` |
 | `src-tauri/Cargo.toml` | `version = "1.0.2"` |
 
-GitHub Actions 构建时删除 `package-lock.json` 并执行 `npm install`，意味着：
-
-- 构建结果不可复现；
-- 依赖可能在无代码变更时升级；
-- 本地与 CI 可能安装不同版本。
-
-若需要稳定构建，建议改为：
+GitHub Actions 使用 `npm ci` 并保留 `package-lock.json`，构建结果可复现：
 
 ```bash
-npm ci   # 使用 package-lock.json
+npm ci   # 严格按 lockfile 安装
 ```
 
-并保留 lock 文件。
+发布前若修改依赖，应在本地执行 `npm install` 更新 lockfile 并一起提交。

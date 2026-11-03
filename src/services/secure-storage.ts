@@ -136,7 +136,7 @@ async function decryptJson<T>(payload: string): Promise<T | null> {
  * 密钥以不可导出 CryptoKey 的形式保存在 IndexedDB，localStorage 中只保存密文。
  */
 export async function saveSecureModels(models: unknown): Promise<void> {
-  if (!isSecureStorageSupported()) return
+  if (typeof localStorage === 'undefined' || !isSecureStorageSupported()) return
   const payload = await encryptJson(models)
   localStorage.setItem(SECURE_MODELS_KEY, payload)
 }
@@ -146,6 +146,7 @@ export async function saveSecureModels(models: unknown): Promise<void> {
  * 加密不可用时仅返回内存数据，不回退为明文持久化。
  */
 export async function loadModelsWithMigration<T>(fallback: T): Promise<T> {
+  if (typeof localStorage === 'undefined') return fallback
   try {
     const legacy = localStorage.getItem(LEGACY_MODELS_KEY)
     if (legacy) {
@@ -174,8 +175,10 @@ export async function loadModelsWithMigration<T>(fallback: T): Promise<T> {
  * 清空加密模型配置与密钥库，用于“重置所有设置”。
  */
 export async function clearSecureModels(): Promise<void> {
-  localStorage.removeItem(SECURE_MODELS_KEY)
-  localStorage.removeItem(LEGACY_MODELS_KEY)
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(SECURE_MODELS_KEY)
+    localStorage.removeItem(LEGACY_MODELS_KEY)
+  }
   keyPromise = null
 
   if (typeof indexedDB === 'undefined') return

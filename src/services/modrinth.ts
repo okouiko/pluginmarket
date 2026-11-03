@@ -48,7 +48,23 @@ export async function searchModrinth(query: string, page = 0, size = 10): Promis
 
 export async function getModrinthProject(idOrSlug: string): Promise<PluginBase> {
   const p = await apiFetch<ModrinthProject>('modrinth', `/project/${idOrSlug}`)
-  return projectToPluginBase(p)
+  const plugin = projectToPluginBase(p)
+
+  // 详情接口不直接返回作者名，通过团队接口补全
+  if (p.team) {
+    try {
+      const members = await getModrinthTeamMembers(p.team)
+      const owner = members.find(member => member.user?.username)?.user
+      if (owner) {
+        plugin.author = owner.username
+        plugin.authorId = owner.id
+      }
+    } catch {
+      // 团队信息不可用时保留空作者，不阻塞详情展示
+    }
+  }
+
+  return plugin
 }
 
 export async function getModrinthProjectDescription(idOrSlug: string): Promise<string> {

@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Loader2, TrendingUp, Sparkles, ChevronDown, ChevronRight, Filter, RefreshCw, Languages, AlertCircle } from 'lucide-react'
-import SearchBar from '@/components/SearchBar'
+import SearchBar, { type SearchFilters } from '@/components/SearchBar'
 import PlatformToggle from '@/components/PlatformToggle'
 import PluginCard from '@/components/PluginCard'
 import { useAppStore } from '@/store'
-import { searchAll } from '@/services/search'
+import { searchAll, getPlatformName } from '@/services/search'
+import { applyPluginFilters, type SortOption } from '@/services/filters'
 import { getSpigetPopularResources } from '@/services/spiget'
 import { getHangarPopular } from '@/services/hangar'
 import { getModrinthPopular } from '@/services/modrinth'
 import { isAIAvailable, translatePluginInfos, type PluginTranslation } from '@/services/ai'
-import type { PluginBase } from '@/types'
+import type { PluginBase, Platform } from '@/types'
 
 // 中文分类
 const categories = [
@@ -77,10 +78,12 @@ export default function MainPage() {
   const [page, setPage] = useState(1)
   
   // 筛选状态
-  const [selectedCategory, setSelectedCategory] = useState('all')
-  const [selectedServer, setSelectedServer] = useState('all')
-  const [selectedSort, setSelectedSort] = useState('popular')
+  const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all')
+  const [selectedServer, setSelectedServer] = useState(searchParams.get('server') || 'all')
+  const [selectedVersion, setSelectedVersion] = useState(searchParams.get('version') || '')
+  const [selectedSort, setSelectedSort] = useState<SortOption>('popular')
   const [selectedDownloads, setSelectedDownloads] = useState('all')
+  const [failedPlatforms, setFailedPlatforms] = useState<Platform[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
   // 折叠状态
@@ -97,22 +100,41 @@ export default function MainPage() {
   const [randomPage, setRandomPage] = useState(1)
   const [refreshing, setRefreshing] = useState(false)
 
+  // 记录平台失败，避免静默吞错
+  const markPlatformError = useCallback((platform: Platform, error: unknown) => {
+    console.warn(`加载 ${getPlatformName(platform)} 失败`, error)
+    setFailedPlatforms(prev => prev.includes(platform) ? prev : [...prev, platform])
+  }, [])
+
   // 加载热门插件
   const loadPopular = useCallback(async () => {
     setLoading(true)
+    setFailedPlatforms([])
     try {
       const results: PluginBase[] = []
       const promises: Promise<void>[] = []
       const p = randomPage
 
       if (enabledPlatforms.includes('spigot')) {
-        promises.push(getSpigetPopularResources(p, 10).then(r => { results.push(...r) }).catch(() => {}))
+        promises.push(
+          getSpigetPopularResources(p, 10)
+            .then(r => { results.push(...r) })
+            .catch(error => markPlatformError('spigot', error)),
+        )
       }
       if (enabledPlatforms.includes('hangar')) {
-        promises.push(getHangarPopular((p - 1) * 10, 10).then(r => { results.push(...r) }).catch(() => {}))
+        promises.push(
+          getHangarPopular(p - 1, 10)
+            .then(r => { results.push(...r) })
+            .catch(error => markPlatformError('hangar', error)),
+        )
       }
       if (enabledPlatforms.includes('modrinth')) {
-        promises.push(getModrinthPopular((p - 1) * 10, 10).then(r => { results.push(...r) }).catch(() => {}))
+        promises.push(
+          getModrinthPopular(p - 1, 10)
+            .then(r => { results.push(...r) })
+            .catch(error => markPlatformError('modrinth', error)),
+        )
       }
 
       await Promise.all(promises)
@@ -128,13 +150,14 @@ export default function MainPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [enabledPlatforms, randomPage, translateEnabled])
+  }, [enabledPlatforms, randomPage, translateEnabled, markPlatformError])
 
   // 搜索插件
   async function doSearch(q: string, p = 1) {
     setLoading(true)
+    setFailedPlatforms([])
     try {
-      const results = await searchAll(q, p, 12)
+      const results = await searchAll(q, p, 12, { onError: markPlatformError })
       if (p === 1) setPlugins(results)
       else setPlugins(prev => [...prev, ...results])
       setPage(p)
@@ -146,13 +169,27 @@ export default function MainPage() {
   }
 
   // 处理搜索
-  const handleSearch = (q: string) => {
+  const handleSearch = (q: string, filters?: SearchFilters) => {
     if (!q.trim()) {
       setSearchParams({})
       setIsSearchMode(false)
       return
     }
-    setSearchParams({ q })
+
+    const category = filters?.category ?? selectedCategory
+    const server = filters?.serverType ?? selectedServer
+    const version = filters?.version ?? selectedVersion
+
+    setSelectedCategory(category)
+    setSelectedServer(server)
+    setSelectedVersion(version)
+
+    const params = new URLSearchParams({ q })
+    if (category !== 'all') params.set('category', category)
+    if (server !== 'all') params.set('server', server)
+    if (version) params.set('version', version)
+
+    setSearchParams(params)
     setIsSearchMode(true)
     setPlugins([])
     doSearch(q, 1)
@@ -202,11 +239,22 @@ export default function MainPage() {
     return { displayName: plugin.name, displayTag: plugin.tag }
   }
 
-  // 过滤插件
-  const filteredPlugins = plugins.filter(p => {
-    if (selectedDownloads !== 'all' && p.downloads < parseInt(selectedDownloads)) return false
-    return true
+  // 过滤与排序插件
+  const minDownloads = selectedDownloads === 'all' ? undefined : parseInt(selectedDownloads, 10)
+  const filteredPlugins = applyPluginFilters(plugins, {
+    category: selectedCategory,
+    serverType: selectedServer,
+    version: selectedVersion,
+    sortBy: selectedSort,
+    minDownloads,
   })
+
+  // 同步 URL 中的筛选参数（SearchBar AI 搜索会写入 category/server/version）
+  useEffect(() => {
+    setSelectedCategory(searchParams.get('category') || 'all')
+    setSelectedServer(searchParams.get('server') || 'all')
+    setSelectedVersion(searchParams.get('version') || '')
+  }, [searchParams])
 
   // 初始化和监听
   useEffect(() => {
@@ -387,7 +435,7 @@ export default function MainPage() {
                 <div>
                   <select
                     value={selectedSort}
-                    onChange={(e) => setSelectedSort(e.target.value)}
+                    onChange={(e) => setSelectedSort(e.target.value as SortOption)}
                     className="w-full px-2.5 py-1.5 rounded-md text-xs border border-mc-border dark:border-dark-border bg-white dark:bg-dark-card text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-mc-green"
                   >
                     {sortOptions.map(s => (
@@ -456,6 +504,16 @@ export default function MainPage() {
               )}
             </div>
           </div>
+
+          {/* 平台加载失败提示 */}
+          {failedPlatforms.length > 0 && (
+            <div className="mb-4 flex items-start gap-2 p-3 rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20 text-xs text-yellow-700 dark:text-yellow-300">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                以下平台加载失败：{failedPlatforms.map(getPlatformName).join('、')}。其余平台结果仍可正常查看。
+              </span>
+            </div>
+          )}
 
           {/* 插件列表 */}
           {loading ? (

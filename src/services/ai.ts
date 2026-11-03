@@ -14,32 +14,50 @@ class ConcurrencyLimiter {
   private queue: (() => void)[] = []
   private running = 0
   private localSlots = 0 // 当前标签页持有的槽位数
-  private channel: BroadcastChannel
+  private channel: BroadcastChannel | null = null
   private storageKey: string
-  private tabId: string
+  private maxConcurrency: number
 
-  constructor(private modelId: string, private maxConcurrency: number) {
+  constructor(private modelId: string, maxConcurrency: number) {
+    this.maxConcurrency = Math.max(1, maxConcurrency)
     this.storageKey = `ai-concurrency-${modelId}`
-    this.tabId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    this.channel = new BroadcastChannel('ai-concurrency')
-    
-    // 监听其他标签页的消息
-    this.channel.onmessage = (event) => {
-      if (event.data.type === 'sync' && event.data.modelId === this.modelId) {
-        // 其他标签页请求同步，不需要特别处理
+
+    // BroadcastChannel 仅用于通知；不支持时仍可依赖 localStorage
+    try {
+      this.channel = new BroadcastChannel('ai-concurrency')
+      this.channel.onmessage = (event) => {
+        if (event.data?.type === 'sync' && event.data.modelId === this.modelId) {
+          // localStorage 是计数来源，无需额外处理
+        }
       }
+    } catch {
+      this.channel = null
     }
-    
+
     // 页面关闭时清理
     window.addEventListener('beforeunload', () => {
       this.cleanup()
     })
   }
 
+  /**
+   * 有 Web Locks 时用它串行化跨标签页的读-改-写；否则退化为原实现。
+   */
+  private withLock<T>(fn: () => T | Promise<T>): Promise<T> {
+    const locks = (navigator as any).locks as
+      | { request: <R>(name: string, callback: () => R | Promise<R>) => Promise<R> }
+      | undefined
+    if (locks?.request) {
+      return locks.request(`${this.storageKey}-lock`, fn)
+    }
+    return Promise.resolve(fn())
+  }
+
   private getGlobalCount(): number {
     try {
       const value = localStorage.getItem(this.storageKey)
-      return value ? parseInt(value, 10) : 0
+      const count = value ? parseInt(value, 10) : 0
+      return Number.isFinite(count) ? count : 0
     } catch {
       return 0
     }
@@ -52,63 +70,74 @@ class ConcurrencyLimiter {
       } else {
         localStorage.setItem(this.storageKey, count.toString())
       }
-      // 通知其他标签页
-      this.channel.postMessage({ type: 'sync', modelId: this.modelId, count })
+      this.channel?.postMessage({ type: 'sync', modelId: this.modelId, count })
     } catch {
       // 忽略 localStorage 错误
     }
   }
 
+  private async reserveSlot(): Promise<boolean> {
+    return this.withLock(() => {
+      const globalCount = this.getGlobalCount()
+      if (globalCount >= this.maxConcurrency) return false
+      this.setGlobalCount(globalCount + 1)
+      return true
+    })
+  }
+
+  private async releaseGlobalSlot(): Promise<void> {
+    await this.withLock(() => {
+      const globalCount = this.getGlobalCount()
+      this.setGlobalCount(Math.max(0, globalCount - 1))
+    })
+  }
+
   async acquire(): Promise<void> {
-    // 先检查全局并发数
-    const globalCount = this.getGlobalCount()
-    
-    // 如果全局已达上限，且不是本标签页的请求在排队，则抛出错误
-    if (globalCount >= this.maxConcurrency && this.running >= this.maxConcurrency) {
-      throw new ConcurrencyLimitError(this.maxConcurrency)
-    }
-    
-    // 本地并发控制
     if (this.running < this.maxConcurrency) {
-      // 再次检查全局计数（可能有竞态）
-      const currentGlobal = this.getGlobalCount()
-      if (currentGlobal >= this.maxConcurrency) {
+      const reserved = await this.reserveSlot()
+      if (!reserved) {
         throw new ConcurrencyLimitError(this.maxConcurrency)
       }
-      
       this.running++
       this.localSlots++
-      this.setGlobalCount(currentGlobal + 1)
       return
     }
-    
-    // 需要排队等待
+
+    // 本地并发已满，进入队列等待
     return new Promise<void>((resolve, reject) => {
       this.queue.push(() => {
-        // 排队后再次检查全局计数
-        const currentGlobal = this.getGlobalCount()
-        if (currentGlobal >= this.maxConcurrency) {
-          reject(new ConcurrencyLimitError(this.maxConcurrency))
-          return
-        }
-        
-        this.running++
-        this.localSlots++
-        this.setGlobalCount(currentGlobal + 1)
-        resolve()
+        void (async () => {
+          const reserved = await this.reserveSlot()
+          if (!reserved) {
+            reject(new ConcurrencyLimitError(this.maxConcurrency))
+          } else {
+            this.running++
+            this.localSlots++
+            resolve()
+          }
+          this.drainQueue()
+        })()
       })
     })
   }
 
   release(): void {
-    this.running--
-    this.localSlots--
-    
-    // 更新全局计数
-    const currentGlobal = this.getGlobalCount()
-    this.setGlobalCount(Math.max(0, currentGlobal - 1))
-    
-    // 处理本地队列
+    this.running = Math.max(0, this.running - 1)
+    this.localSlots = Math.max(0, this.localSlots - 1)
+
+    // 释放全局槽位后再唤醒下一个等待者
+    void this.releaseGlobalSlot().then(() => this.drainQueue())
+  }
+
+  setMaxConcurrency(maxConcurrency: number): void {
+    const normalized = Math.max(1, Math.floor(maxConcurrency))
+    if (normalized === this.maxConcurrency) return
+    this.maxConcurrency = normalized
+    this.drainQueue()
+  }
+
+  private drainQueue(): void {
+    if (this.running >= this.maxConcurrency || this.queue.length === 0) return
     const next = this.queue.shift()
     if (next) next()
   }
@@ -122,17 +151,23 @@ class ConcurrencyLimiter {
       this.running = 0
       this.queue = []
     }
-    this.channel.close()
+    this.channel?.close()
+    this.channel = null
   }
 }
 
 const limiters = new Map<string, ConcurrencyLimiter>()
 
 function getLimiter(model: AIModelConfig): ConcurrencyLimiter {
-  if (!limiters.has(model.id)) {
-    limiters.set(model.id, new ConcurrencyLimiter(model.id, model.maxConcurrency))
+  let limiter = limiters.get(model.id)
+  if (!limiter) {
+    limiter = new ConcurrencyLimiter(model.id, model.maxConcurrency)
+    limiters.set(model.id, limiter)
+  } else {
+    // 设置页修改并发上限后，下一次调用立即生效
+    limiter.setMaxConcurrency(model.maxConcurrency)
   }
-  return limiters.get(model.id)!
+  return limiter
 }
 
 // 获取指定角色的模型配置
@@ -149,7 +184,10 @@ export function isAIAvailable(role: AIRole): boolean {
 // 构建请求 URL
 function buildUrl(model: AIModelConfig): string {
   const base = model.baseUrl.replace(/\/$/, '')
-  return `${base}/chat/completions`
+  const target = `${base}/chat/completions`
+  const proxy = useAppStore.getState().aiProxy.trim()
+  // 代理约定：前缀 + encodeURIComponent(完整目标 URL)，需支持 POST 与 Authorization
+  return proxy ? `${proxy}${encodeURIComponent(target)}` : target
 }
 // 非流式调用
 export async function chatCompletion(
@@ -441,8 +479,7 @@ export async function translateLines(lines: string[]): Promise<string[]> {
     return results
   }
   
-  // 使用模型的最大并发数
-  const maxConcurrency = model.maxConcurrency
+  // 使用模型的并发限流器
   const limiter = getLimiter(model)
   
   // 并发执行所有翻译任务
@@ -494,7 +531,7 @@ export async function translateLines(lines: string[]): Promise<string[]> {
       }
       
       results[task.index] = finalResult
-    } catch (err) {
+    } catch {
       // 翻译失败时保留原文
       results[task.index] = lines[task.index]
     } finally {
@@ -833,7 +870,7 @@ function extractHtmlMarkdownSegments(content: string): TextSegment[] {
     let isTranslatable = true
     let textContent = trimmed
     let prefix = ''
-    let suffix = ''
+    const suffix = ''
     
     // 跳过空行
     if (!trimmed) {
@@ -996,7 +1033,7 @@ Welcome to the server
         completed++
         onProgress?.(Math.round((completed / total) * 100))
       }
-    } catch (err) {
+    } catch {
       // 翻译失败时返回原文
       for (const segment of batch) {
         yield { index: segment.index, translated: segment.original }

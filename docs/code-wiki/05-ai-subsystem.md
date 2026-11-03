@@ -33,20 +33,24 @@ export function isAIAvailable(role: AIRole): boolean
 ```ts
 function buildUrl(model: AIModelConfig): string {
   const base = model.baseUrl.replace(/\/$/, '')
-  return `${base}/chat/completions`
+  const target = `${base}/chat/completions`
+  const proxy = useAppStore.getState().aiProxy.trim()
+  return proxy ? `${proxy}${encodeURIComponent(target)}` : target
 }
 ```
 
-因此 `baseUrl` 应为 OpenAI 兼容的版本根路径（如 `https://open.bigmodel.cn/api/paas/v4`），而不是完整的 `/chat/completions`。
+- `baseUrl` 应为 OpenAI 兼容的版本根路径（如 `https://open.bigmodel.cn/api/paas/v4`），而不是完整的 `/chat/completions`。
+- `aiProxy` 为空时直连；填写后按“前缀 + encodeURIComponent(完整 URL)”转发，代理需支持 POST 与 `Authorization`。
 
 ## 2. 并发控制 `ConcurrencyLimiter`
 
 ### 2.1 目标
 
-同一模型可能配置了并发上限（例如免费模型只允许 1–2 路并发）。由于用户可能打开多个标签页，限制需要 **跨标签页共享**。实现位于 [ai.ts#L13-L127](../../src/services/ai.ts#L13-L127)，采用：
+同一模型可能配置了并发上限（例如免费模型只允许 1–2 路并发）。由于用户可能打开多个标签页，限制需要 **跨标签页共享**。实现位于 [ai.ts#L13-L157](../../src/services/ai.ts#L13-L157)，采用：
 
 - `localStorage` 键 `ai-concurrency-<modelId>` 保存全局占用数。
-- `BroadcastChannel('ai-concurrency')` 在计数变化时通知其他标签页。
+- 有 Web Locks API 时，用 `navigator.locks.request` 串行化“读取全局计数 → 写入”的临界区。
+- `BroadcastChannel('ai-concurrency')` 仅用于通知其他标签页；不支持时安全降级为仅 localStorage。
 - 每个标签页一个 `ConcurrencyLimiter` 实例，保存在模块级 `Map<string, ConcurrencyLimiter>`（按 `model.id` 缓存）。
 - 每实例维护本地队列 `queue`、本地运行数 `running`、本地持有槽位 `localSlots`。
 
@@ -54,29 +58,31 @@ function buildUrl(model: AIModelConfig): string {
 
 | 成员 | 说明 |
 | --- | --- |
-| `constructor(modelId, maxConcurrency)` | 初始化 storageKey、tabId、BroadcastChannel，并注册 `beforeunload` 清理 |
+| `constructor(modelId, maxConcurrency)` | 初始化 storageKey、可空 BroadcastChannel，并注册 `beforeunload` 清理 |
+| `withLock(fn)` | 有 Web Locks 时用命名锁串行执行；否则直接执行 |
 | `getGlobalCount()` | 读取 localStorage 中的全局计数，异常返回 0 |
-| `setGlobalCount(count)` | 写入或删除键，并 `postMessage({ type: 'sync', modelId, count })` |
-| `acquire()` | 获取一个槽位；可能立即成功、排队等待或抛出 `ConcurrencyLimitError` |
-| `release()` | 释放槽位，减少全局计数，唤醒本地队列下一个任务 |
+| `setGlobalCount(count)` | 写入或删除键，并通过可空频道通知其他标签页 |
+| `reserveSlot()` | 在锁内检查并占用一个全局槽位 |
+| `releaseGlobalSlot()` | 在锁内归还一个全局槽位 |
+| `acquire()` | 本地未满则尝试占槽；否则进入本地队列 |
+| `release()` | 释放本地槽位，异步归还全局槽位后唤醒队列 |
+| `setMaxConcurrency(max)` | 设置页修改后即时更新上限并尝试唤醒队列 |
+| `drainQueue()` | 在本地未满时唤醒一个等待者 |
 | `cleanup()` | 页面卸载时归还本标签页持有的所有槽位并关闭频道 |
 
 ### 2.3 `acquire` 判定流程
 
 ```mermaid
 flowchart TD
-    A["acquire()"] --> B["读取全局计数 globalCount"]
-    B --> C{"globalCount ≥ max<br/>且 running ≥ max?"}
-    C -->|是| D["throw ConcurrencyLimitError"]
-    C -->|否| E{"running < max?"}
-    E -->|是| F{"再次读取 globalCount<br/>是否 ≥ max?"}
-    F -->|是| D
-    F -->|否| G["running++ / localSlots++<br/>globalCount+1 / resolve"]
-    E -->|否| H["加入本地 queue 等待"]
-    H --> I["release 时 shift 队列"]
-    I --> J{"globalCount ≥ max?"}
-    J -->|是| K["reject ConcurrencyLimitError"]
-    J -->|否| L["占用槽位并 resolve"]
+    A["acquire()"] --> B{"running < max?"}
+    B -->|是| C["reserveSlot()：Web Lock 内<br/>读取 globalCount"]
+    C --> D{"globalCount < max?"}
+    D -->|否| E["throw ConcurrencyLimitError"]
+    D -->|是| F["globalCount + 1<br/>running++ / localSlots++"]
+    B -->|否| G["加入本地 queue"]
+    G --> H["release 后 drainQueue"]
+    H --> I["排队任务再次 reserveSlot()"]
+    I --> D
 ```
 
 ### 2.4 错误类型
@@ -92,16 +98,14 @@ export class ConcurrencyLimitError extends Error {
 
 调用方（`AskAIPanel`、`SearchBar`、`GuidePage`）会 `instanceof` 判断并展示友好提示；其他错误直接显示 `err.message`。
 
-### 2.5 已知缺陷
+### 2.5 剩余限制
 
 | 问题 | 说明 |
 | --- | --- |
-| 并发上限不随配置更新 | `limiters` 以首次创建时的 `maxConcurrency` 固化；设置页修改后需刷新页面才生效 |
-| 竞态窗口 | 读取全局计数与写入之间没有锁，多个标签页同时 `acquire` 可能短暂超限 |
-| `BroadcastChannel` 无降级 | 不支持该 API 的 WebView/旧浏览器会在构造时报错，且没有 `try/catch` |
 | 监听器未移除 | `beforeunload` 匿名监听器无法在运行时移除；单页应用生命周期内影响有限 |
-| `cleanup` 只在 `localSlots > 0` 时归还 | 若计数被异常清零，可能残留全局计数；`release` 与 `cleanup` 的并发也可能重复归还 |
+| `cleanup` 只在 `localSlots > 0` 时归还 | 若计数被异常清零，可能残留全局计数 |
 | 本地队列可无限增长 | 队列没有上限或超时，极端情况下请求会长时间等待 |
+| 无 Web Locks 的环境 | 退化为原实现，跨标签页读改写仍有极小竞态窗口 |
 
 ## 3. 调用 API
 
@@ -322,10 +326,10 @@ flowchart TD
 
 关键实现：
 
-- `MAX_TOOL_ITERATIONS = 10`（[GuidePage.tsx#L1500-L1503](../../src/pages/GuidePage.tsx#L1500-L1503)）。
+- `MAX_TOOL_ITERATIONS = 10`（[GuidePage.tsx#L1436-L1439](../../src/pages/GuidePage.tsx#L1436-L1439)）。
 - 工具结果消息格式：`{ role: 'tool', tool_call_id, content }`。
 - `read_server_file` 超过 10,000 字符时只保留最后 10,000 字符。
-- `read_docs` 可一次读多篇文档，`loadDoc` 遍历 `import.meta.glob` 模块匹配路径。
+- `read_docs` 可一次读多篇文档，`loadDoc` 通过 `getDocContentByPath` 从统一文档目录读取。
 - 根目录内容在确认路径后预加载（最多 30 项），注入 system prompt。
 - 图片以 Base64 data URL 放入 `image_url`，与文本组成多模态 `content` 数组。
 - 上下文超过 150,000 **字符** 时触发压缩：保留最近 5 条，其余由 `decision` 模型生成摘要，摘要作为 assistant 消息插入；压缩失败则继续使用原消息。
@@ -334,7 +338,7 @@ flowchart TD
 
 ### 5.3 工具执行与本地文件
 
-`resolveServerPath` / `readServerFile` / `listServerFiles`（[GuidePage.tsx#L958-L1019](../../src/pages/GuidePage.tsx#L958-L1019)）：
+`resolveServerPath` / `readServerFile` / `listServerFiles`（[GuidePage.tsx#L896-L956](../../src/pages/GuidePage.tsx#L896-L956)）：
 
 1. 非 Tauri 环境直接返回错误文案。
 2. `resolveServerPath` 将模型提供的相对路径规范化，并校验其必须位于服务器根目录内：
@@ -350,7 +354,7 @@ flowchart TD
 ### 5.4 文档读取
 
 - `SimpleServerPreset` 与 `AgentPreset` 使用 `loadDoc(path)`，在 `import.meta.glob('../assets/docs/**/*.md')` 的结果中按 `endsWith` 匹配。
-- 文档路径必须与 `DOC_INDEX` 中的相对路径一致（如 `core/paper.md`）。
+- 文档路径必须与 `src/data/docs.ts` 的 `DOC_CATALOG` 相对路径一致（如 `core/paper.md`）。
 - 文档全文直接进入 system prompt，没有长度上限；Agent 模式可能因此占用大量上下文，随后触发压缩。
 
 ## 6. 失败与降级策略
@@ -373,7 +377,7 @@ flowchart TD
 | 风险 | 说明 | 当前措施 / 建议 |
 | --- | --- | --- |
 | API Key 存储 | 模型配置含 API Key | 已改为 AES-GCM 加密存储：密钥不可导出并保存在 IndexedDB，`localStorage` 仅存密文；非安全上下文仅保留内存 |
-| 请求直连模型服务 | Key 会出现在浏览器网络面板；第三方服务可被 CORS 拦截 | 桌面端可接受；Web 生产建议自建代理 |
+| 请求直连模型服务 | Key 会出现在浏览器网络面板；第三方服务可被 CORS 拦截 | 设置页新增 `aiProxy`，可配置支持 POST/Authorization 的中转前缀 |
 | 提示词注入 | 插件描述、服务器日志、文档内容会进入 system/user 上下文 | 对文件/日志内容做明确分隔与指令隔离；限制工具范围 |
 | 本地文件读取 | Agent 读取用户选定目录 | `resolveServerPath` 阻止绝对路径与 `..` 穿越；Tauri `fs:scope` 限制在 HOME/DOCUMENT/DESKTOP/DOWNLOAD；仅保留只读权限 |
 | 命令执行 | 原 shell 兜底 | 已移除 `tauri-plugin-shell`、相关 capabilities 与前端回退代码 |

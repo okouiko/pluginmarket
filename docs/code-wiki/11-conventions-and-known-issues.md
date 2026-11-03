@@ -124,37 +124,37 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 | 17 | Agent 路径强制 Windows 风格 | 统一使用 `/` 并支持跨平台；移除 `cmd` 兜底 |
 | 18 | 设置“重置”执行 `localStorage.clear()` | 改为 `resetAppData()`，仅清理本应用键、密文与 IndexedDB 密钥库 |
 
-### 3.2 P1（剩余）
+### 3.2 已修复的 P1 问题
 
-| # | 问题 | 位置 | 影响 |
+| # | 原问题 | 修复方式 | 关键位置 |
 | --- | --- | --- | --- |
-| 6 | MainPage 分类/服务端/排序筛选未接入请求 | `MainPage.tsx#L80-L89`、`#L206-L209` | 用户点击筛选无效，只有最低下载量生效 |
-| 7 | Modrinth 搜索分页二次乘法 | `search.ts#L20-L22` + `modrinth.ts#L44` | “加载更多”跳过大量结果 |
-| 8 | Hangar/Modrinth 热门“换一批”偏移二次乘法 | `MainPage.tsx#L112-L115` | 随机页实际跳到 100、200… |
-| 9 | Hangar 详情缓存键不匹配 | `PluginDetailPage.tsx#L89` vs `store/index.ts#L214` | Hangar 永远不命中缓存，重复请求 |
-| 10 | 文档树仅 38/72，索引三套手写 | `DocsPage.tsx`、`DocsSearch.tsx`、`GuidePage.tsx` | 33 篇配置文档无法从侧边栏打开、普通搜索不可见；索引易漂移 |
-| 11 | `searchAll` 吞掉所有平台错误 | `search.ts#L14-L27` | 用户只看到结果变少，无失败提示 |
-| 12 | `apiFetch` 无超时/取消 | `api-base.ts#L41-L72` | 弱网下长时间 loading，无法中止 |
-| 13 | `ConcurrencyLimiter` 并发上限固化 | `ai.ts#L129-L136` | 设置页修改并发后需刷新才生效 |
-| 14 | `ConcurrencyLimiter` 跨标签页竞态 | `ai.ts#L62-L101` | 多标签同时请求可能短暂超限 |
-| 15 | `BroadcastChannel` 无兼容降级 | `ai.ts#L21-L31` | 不支持的 WebView 直接抛错 |
-| 19 | CI 删除 `package-lock.json` | `deploy.yml#L31-L33`、`release.yml#L53-L57` | 构建不可复现，依赖可能漂移 |
-| 20 | 无测试、无 lint | 全仓库 | 回归风险依赖人工与 `tsc` |
-| 21 | Modrinth 详情作者为空 | `modrinth.ts#L30` | 作者链接空白、作者页空参数 |
-| 22 | AI 请求不经过 CORS 代理 | `ai.ts#L168`、`#L243`、`#L295` | Web 生产环境可能被模型服务 CORS 拦截 |
+| 6 | MainPage 筛选未接入请求 | 新增 `services/filters.ts`，分类/服务端/版本/下载量/排序统一过滤；SearchBar 筛选参数写入 URL 并同步到 MainPage | `MainPage.tsx`、`services/filters.ts` |
+| 7 | Modrinth 搜索分页二次乘法 | `searchAll` 统一使用 `getPlatformPage`，Hangar/Modrinth 传 0 基页码 | `services/search.ts` |
+| 8 | 热门“换一批”偏移二次乘法 | Hangar/Modrinth 热门改为传 `randomPage - 1` | `MainPage.tsx` |
+| 9 | Hangar 详情缓存键不匹配 | 缓存键按 `plugin.id` 规则生成：`hangar-<owner>-<slug>` | `PluginDetailPage.tsx` |
+| 10 | 文档树仅 38/72、索引多套手写 | 新增 `src/data/docs.ts` 单一数据源，eager glob 全部 72 篇，自动生成 `docsTree`、`DOC_INDEX_TEXT`、`PLUGIN_DOCS` | `src/data/docs.ts`、`DocsPage.tsx`、`DocsSearch.tsx`、`GuidePage.tsx`、`SearchBar.tsx` |
+| 11 | `searchAll` 吞掉平台错误 | `searchAll` 增加 `onError` 回调，MainPage 展示失败平台提示 | `services/search.ts`、`MainPage.tsx` |
+| 12 | `apiFetch` 无超时/取消 | 增加默认 15 秒超时与外部 `AbortSignal` 透传 | `services/api-base.ts` |
+| 13 | 并发上限固化 | `ConcurrencyLimiter.setMaxConcurrency` 在每次取模型时同步 | `services/ai.ts` |
+| 14 | 跨标签页竞态 | 使用 Web Locks 串行化全局计数读改写；不可用时退化 | `services/ai.ts` |
+| 15 | BroadcastChannel 无降级 | 构造失败时置空，仅依赖 localStorage | `services/ai.ts` |
+| 19 | CI 删除 `package-lock.json` | 两个工作流改为 `npm ci` | `deploy.yml`、`release.yml` |
+| 20 | 无测试、无 lint | 增加 ESLint flat config、Vitest 9 个单元测试与 `lint` / `test` / `typecheck` 脚本 | `eslint.config.js`、`*.test.ts`、`package.json` |
+| 21 | Modrinth 详情作者为空 | `getModrinthProject` 通过团队接口补全作者与作者 ID | `services/modrinth.ts` |
+| 22 | AI 请求绕过 CORS 代理 | 新增可配置 `aiProxy`，`buildUrl` 统一走代理前缀 | `store/index.ts`、`services/ai.ts`、`SettingsPage.tsx` |
 
-### 3.3 P2
+### 3.3 P2（剩余）
 
 | # | 问题 | 位置 | 影响 |
 | --- | --- | --- | --- |
 | 24 | 未使用的类型 `AIStreamChunk`、`AppSettings`、`types/SearchFilters` | `types/index.ts` | 类型定义与实现漂移 |
-| 25 | 未使用的导出：`formatRating`、`getPlatformColor`、`getSpigetCategories`、`getSpigetCategoryResources`、`getSpigetNewResources`、`getSpigetAuthor`、`getModrinthTeamMembers`、`getModrinthCategories`、`translateLines`、`translateDocument`、`describeImage`、`PlaceholderPreset` | 各服务/页面 | 死代码增加维护成本 |
-| 26 | 重复实现：三份锚点生成、多套文档索引、两套翻译流程 | `DocsPage`/`AskAIPanel`/`DocsSearch`；`ai.ts`/`GuidePage` | 行为不一致风险 |
-| 27 | 组件过重 | `SearchBar` 723 行、`DocsSearch` 653 行、`GuidePage` 2017 行 | 难测试、难复用 |
+| 25 | 未使用的导出：`formatRating`、`getPlatformColor`、`getSpigetCategories`、`getSpigetCategoryResources`、`getSpigetNewResources`、`getSpigetAuthor`、`getModrinthCategories`、`translateLines`、`translateDocument`、`describeImage` | 各服务/页面 | 死代码增加维护成本 |
+| 26 | 重复实现：三份锚点生成、两套翻译流程 | `DocsPage`/`AskAIPanel`/`DocsSearch`；`ai.ts`/`GuidePage` | 行为不一致风险 |
+| 27 | 组件过重 | `MainPage` 574 行、`SearchBar` 712 行、`DocsSearch` 492 行、`GuidePage` 1953 行 | 难测试、难复用 |
 | 28 | 整体解构 Store | `MainPage`、`PluginDetailPage`、`SettingsPage` | 任意状态变化触发重渲染 |
 | 29 | 收藏保存译文快照 | `MainPage` + `PluginCard` | 收藏卡显示 AI 译文而非原文 |
 | 30 | `MinecraftBlockIcon` 每次渲染生成随机 id | `PlatformIcons.tsx#L36` | 无意义 DOM 变化与内存开销 |
-| 31 | 重复请求：Spigot 详情与描述各请求一次 `/resources/{id}` | `PluginDetailPage` + `spiget.ts` | 增加延迟与限流风险 |
+| 31 | 重复请求：Spigot 详情与描述各请求一次 `/resources/{id}`；Modrinth 详情额外请求团队信息 | `PluginDetailPage` + `spiget.ts` / `modrinth.ts` | 增加延迟与限流风险 |
 | 32 | Hangar 描述最多 6 次请求 | `hangar.ts#L35-L67` | 详情页变慢 |
 | 33 | 重复翻译无缓存 | `MainPage.toggleTranslate` | 每次加载重新调用 AI |
 | 34 | 锚点重复 id | `generateHeadingSlug` | 同名标题只跳第一个 |
@@ -200,7 +200,7 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 - [ ] `npm run build` 通过（`tsc -b` + `vite build`）。
 - [ ] 新增页面已在 `App.tsx` 注册，并在 06 文档补充。
 - [ ] 新增平台已更新 `Platform`、适配器、`api-base`、Vite 代理、`searchAll`、首页/详情/作者、图标与颜色。
-- [ ] 新增文档已同步 `docsTree`（如需侧边栏）、`DOC_INDEX`、`DOC_INDEX_DESC`、`GuidePage.DOC_INDEX`、`目录.md`。
+- [ ] 新增文档后运行 `npm test`（`docs.test.ts` 校验 72/树节点一致），并更新 `目录.md`；分组规则按需补充 `src/data/docs.ts`。
 - [ ] 新增 AI 角色已同步类型、默认分配、设置页标签。
 - [ ] 新增 Store 字段已加入持久化键表（03 文档）。
 - [ ] 修改 Tauri 权限时已评估安全影响（09 文档）。
@@ -220,6 +220,6 @@ flowchart LR
 | 阶段 | 目标 | 关键动作 |
 | --- | --- | --- |
 | 1 | 消除高危面（已完成） | DOMPurify、CSP、Tauri 最小权限、Key 加密存储、路径校验 |
-| 2 | 修复核心功能 | Modrinth 分页、热门偏移、筛选接入、Hangar 缓存键、请求超时与错误 UI |
-| 3 | 降低维护成本 | 文档索引自动生成、拆分 SearchBar/DocsSearch/GuidePage、统一 AI 错误组件、清理未使用代码 |
-| 4 | 建立质量门禁 | ESLint + Prettier、Vitest、Playwright、`npm ci`、依赖审计、PR 检查清单 |
+| 2 | 修复核心功能（已完成） | 分页修正、热门偏移、筛选接入、缓存键、请求超时与错误提示、文档统一索引、AI 并发与代理、CI/测试 |
+| 3 | 降低维护成本 | 拆分 SearchBar/DocsSearch/GuidePage、统一 AI 错误组件、清理未使用代码 |
+| 4 | 建立质量门禁 | ESLint + Prettier、更多 Vitest/Playwright 覆盖、依赖审计、PR 检查清单 |

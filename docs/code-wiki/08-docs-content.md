@@ -22,122 +22,102 @@
 | 根目录 | 1 | `目录.md`（手册总目录） |
 | **合计** | **72** | |
 
-## 2. 四种消费路径
+## 2. 统一文档数据源
 
 ```mermaid
 flowchart LR
     Docs["src/assets/docs/**/*.md"]
-    DocsPage["DocsPage<br/>38 篇静态 ?raw 导入"]
+    Catalog["src/data/docs.ts<br/>eager import.meta.glob + 分类/派生"]
+    Tree["docsTree + 侧边栏"]
+    Index["DOC_INDEX_TEXT"]
+    SearchBar["SearchBar<br/>PLUGIN_DOCS"]
+    Guide["GuidePage<br/>getDocContentByPath"]
     DocsSearch["DocsSearch<br/>普通检索 / AI 检索"]
     AskAI["AskAIPanel<br/>当前文档问答"]
-    Guide["GuidePage<br/>import.meta.glob 全部"]
-    SearchBar["SearchBar<br/>plugins/*.md glob"]
-    Tree["docsTree + 侧边栏"]
-    Index["DOC_INDEX / DOC_INDEX_DESC"]
 
-    Docs --> DocsPage --> Tree
-    Tree --> DocsSearch
-    Index --> DocsSearch
-    Docs --> Guide
-    Docs --> SearchBar
-    DocsPage --> AskAI
+    Docs --> Catalog
+    Catalog --> Tree --> DocsSearch
+    Catalog --> Index --> DocsSearch
+    Catalog --> SearchBar
+    Catalog --> Guide
+    Tree --> AskAI
 ```
 
-### 2.1 `DocsPage`：静态导入 + 目录树
+### 2.1 `src/data/docs.ts`：单一事实来源
 
-`DocsPage` 使用 Vite 的 `?raw` 后缀，在编译期把 38 篇文档作为字符串打入 bundle：
-
-```ts
-import paper from '@/assets/docs/core/paper.md?raw'
-```
-
-其特点：
-
-- **构建期确定**，运行时零请求，离线可用。
-- 只有被显式 import 的文档才能进入 `docsTree`、侧边栏和普通搜索。
-- 新增文档必须手动添加 import 与树节点。
-
-未进入 `docsTree` 的内容：
-
-| 内容 | 篇数 | 原因 |
-| --- | --- | --- |
-| `core/config/server-properties/*.md` | 7 | `DocsPage` 未导入 |
-| `core/config/bukkit-yml/*.md` | 6 | 未导入 |
-| `core/config/spigot-yml/*.md` | 6 | 未导入 |
-| `core/config/paper-yml/*.md` | 7 | 未导入 |
-| `core/config/purpur-yml/*.md` | 7 | 未导入 |
-| `目录.md` | 1 | 未导入 |
-
-因此侧边栏与 `DocsSearch` 普通模式只覆盖 **38 / 72** 篇。
-
-### 2.2 `DocsSearch`：检索索引
-
-`DocsSearch` 本身不加载文档，它接收 `DocsPage` 的 `getAllDocs()` 回调，回调基于 `docsTree` 扁平化。因此：
-
-- 普通搜索范围 = `docsTree` 的 38 篇。
-- AI 检索不直接读取全文，而是向模型提供 **手写的 `DOC_INDEX_DESC`**（关键词 → 路径映射），再让模型输出 `search_docs` 工具调用；最终映射回 `docsTree` 节点。
-- `DOC_INDEX`（关键词 → 文件路径）也用于兜底匹配，但只能映射到 `docsTree` 中存在的文档 id/title，否则推荐被过滤。
-
-结论：AI 检索的索引中包含少量 `core/config` 概述路径，但这些目标节点不在 `docsTree` 中，映射后会因找不到文档而被过滤。
-
-### 2.3 `AskAIPanel`：当前文档问答
-
-- 直接把 `DocsPage` 当前选中文档的全文放入 system prompt。
-- 因此只对 `docsTree` 中的 38 篇有效。
-- 文档越长，占用的上下文越多；没有截断或分段检索。
-- AI 回答中的标题可点击跳转，锚点由 `generateHeadingSlug` 统一生成（`DocsPage` 与 `AskAIPanel` 各自实现了一份相同逻辑）。
-
-### 2.4 `GuidePage`：动态 glob 全量加载
+`src/data/docs.ts` 使用：
 
 ```ts
-const docModules = import.meta.glob('../assets/docs/**/*.md', {
+const rawDocs = import.meta.glob('../assets/docs/**/*.md', {
   query: '?raw',
   import: 'default',
-  eager: false,
+  eager: true,
 })
+```
 
+在编译期把 **全部 72 篇** 文档载入，并完成：
+
+- 归一化 Vite glob key（兼容 `/src/assets/docs/...` 与 `../assets/docs/...`）。
+- 从首个 `# 标题` 提取文档标题，回退到文件名。
+- 根据目录/文件名分类到 9 个一级分组与 11 个子分组。
+- 生成 `DOC_CATALOG`（元数据 + 原文）、`docsTree`（侧边栏树）、`DOC_INDEX_TEXT`（AI 文档清单）、`PLUGIN_DOCS`（插件文档子集）。
+- 提供 `resolveDocEntry(path)` 与 `getDocContentByPath(path)`。
+
+因此新增文档不再需要改 `DocsPage` import、`DOC_INDEX`、`DOC_INDEX_DESC` 或 `GuidePage.DOC_INDEX`。
+
+### 2.2 `DocsPage`：统一树 + 全量阅读
+
+- 只导入 `docsTree` 与 `DocItem` 类型，不再手写 38 个 `?raw` import。
+- 侧边栏、普通搜索与文档阅读覆盖 **72 / 72** 篇。
+- `getAllDocsFlat` 会把 `📚` / `📁` 从面包屑标题中移除。
+
+### 2.3 `DocsSearch`：检索
+
+- 普通搜索基于 `DocsPage` 传入的 `getAllDocs()`，范围是所有 72 篇。
+- AI 检索 prompt 使用 `DOC_INDEX_TEXT`（由 `DOC_CATALOG` 自动生成）。
+- 模型返回的 `doc_path` 通过 `resolveDocEntry` 直接解析为目录节点，不再依赖手写的关键词映射表。
+
+### 2.4 `AskAIPanel`：当前文档问答
+
+- 把当前文档全文放入 system prompt。
+- 现在所有 72 篇文档都可选中并提问。
+- 文档越长，占用上下文越多；没有截断或分段检索。
+- AI 回答中的标题可点击跳转，锚点由 `generateHeadingSlug` 统一生成（`DocsPage` 与 `AskAIPanel` 各自实现了一份相同逻辑）。
+
+### 2.5 `GuidePage`：Agent 阅读
+
+`loadDoc` 直接调用 `getDocContentByPath(path)`：
+
+```ts
 async function loadDoc(path: string): Promise<string> {
-  for (const [key, loader] of Object.entries(docModules)) {
-    if (key.endsWith(path) || key.includes(`/${path}`)) {
-      return await loader() as string
-    }
-  }
-  return `文档 ${path} 未找到`
+  return getDocContentByPath(path) ?? `文档 ${path} 未找到`
 }
 ```
 
-- 懒加载，构建产物中每篇文档仍是独立 chunk。
-- 覆盖全部 72 篇（包括 `core/config/` 与 `目录.md`）。
-- `DOC_INDEX` 常量只列出 38 篇核心文档，因此 AI 只有被提示的路径才会主动读取；但模型若猜中其他路径，`loadDoc` 也能加载。
-- 路径匹配依赖 `endsWith` / `includes`，同名文件可能被错误匹配（当前目录结构中未出现）。
+- 不再维护第二套 `import.meta.glob` 与 `endsWith` 路径匹配。
+- `SYSTEM_PROMPT` 与 `AGENT_SYSTEM_PROMPT` 共用 `DOC_INDEX_TEXT`，AI 能看到全部文档路径。
+- 文档内容随 `src/data/docs.ts` 一起打包；Agent 读取时无需再次扫描模块。
 
-### 2.5 `SearchBar`：仅插件文档
+### 2.6 `SearchBar`：插件文档子集
 
-```ts
-const pluginDocs = import.meta.glob('../assets/docs/plugins/*.md', {
-  query: '?raw',
-  import: 'default',
-})
-```
-
-- 只加载 `plugins/插件推荐.md` 与 `plugins/反作弊.md`。
-- 是否读取由硬编码关键词判断，且只取前 3000 字符。
-- 用于 AI 插件搜索时提供“应该搜哪些插件名”的上下文。
+- 使用 `PLUGIN_DOCS`（从 `DOC_CATALOG` 过滤 `plugins/` 得到）。
+- 使用 `getDocContentByPath` 读取文档，不再单独 `import.meta.glob`。
+- 是否读取仍由硬编码关键词判断，且只取前 3000 字符。
 
 ## 3. 目录树结构
 
-`DocsPage.docsTree` 是手写嵌套数组，节点结构：
+`docsTree` 由 `DOC_CATALOG` 自动构建，节点结构：
 
 ```ts
 interface DocItem {
-  id: string          // 唯一 id，用于选中与搜索
-  title: string       // 显示标题（可带 📚 / 📁 emoji）
-  content?: string    // 文档原文；无 content 表示纯分组
+  id: string          // 由文档路径派生，例如 core-config-server-properties-概述
+  title: string       // 首个 H1，或文件名
+  content?: string    // 文档原文；无 content 表示分组
   children?: DocItem[]
 }
 ```
 
-一级节点（8 个）：
+一级节点（9 个）：
 
 ```text
 📚 Java 环境
@@ -148,15 +128,22 @@ interface DocItem {
    └── 📁 混合端      Mohist / CatServer / Arclight / Banner
    └── 📁 代理端      BungeeCord / Velocity
    └── 📁 跨平台      Geyser
-📚 服务器配置         权限管理 / 世界管理 / 性能优化
+📚 服务器配置
+   └── 📁 通用配置          权限管理 / 世界管理 / 性能优化
+   └── 📁 server.properties  7 篇
+   └── 📁 bukkit.yml         6 篇
+   └── 📁 spigot.yml         6 篇
+   └── 📁 paper 配置         7 篇
+   └── 📁 purpur.yml         7 篇
 📚 网络配置           概述 / IPv4 / IPv6 / 云服务器 / 域名 / FRP / P2P
 📚 运维管理           Linux / Windows / 备份恢复 / 安全防护
 📚 插件               插件推荐 / 反作弊
 📚 模组               模组推荐
 📚 常见问题           FAQ
+📚 手册目录           目录.md
 ```
 
-节点 id 约定：`java-env`、`jvm-args`、`core-guide`、`core-plugin`、`paper`、`network-ipv4`、`ops-linux`、`faq-main` 等。新增节点时需保证全局唯一。
+节点 id 约定：分组节点为 `section-<section>` / `section-<section>-<subsection>`；文档节点由路径派生，如 `java-Java环境配置`、`core-paper`、`core-config-server-properties-概述`、`network-01-概述与前置知识`。
 
 ### 3.1 侧边栏渲染
 
@@ -220,68 +207,47 @@ function generateHeadingSlug(text: string): string {
 
 以新增 `core/optimization/实体优化.md` 为例：
 
-1. **创建文件**：放到 `src/assets/docs/core/optimization/实体优化.md`。
+1. **创建文件**：放到 `src/assets/docs/core/optimization/实体优化.md`，首行写 `# 实体优化`。
 2. **同步总目录**：更新 `src/assets/docs/目录.md` 的链接。
-3. **侧边栏展示（可选但推荐）**：
-   - 在 `DocsPage.tsx` 顶部添加：
-     ```ts
-     import entityOptimization from '@/assets/docs/core/optimization/实体优化.md?raw'
-     ```
-   - 在 `docsTree` 对应分组添加：
-     ```ts
-     { id: 'entity-optimization', title: '实体优化', content: entityOptimization }
-     ```
-4. **普通/AI 文档搜索**：
-   - 在 `DocsSearch.tsx` 的 `DOC_INDEX` 添加 `关键词: 'core/optimization/实体优化.md'`；
-   - 在 `DOC_INDEX_DESC` 添加一行说明。
-5. **开服 Agent / 简单开服**：
-   - 文件已能被 `import.meta.glob` 自动发现；
-   - 若希望 AI 主动读取，在 `GuidePage.tsx` 的 `DOC_INDEX` 字符串补充路径与说明。
-6. **AI 插件搜索（仅插件类文档）**：
-   - 在 `SearchBar.tsx` 的 `pluginDocList` 添加文件与描述；
-   - 在 `runAgent` 的关键词匹配逻辑中添加命中条件。
-7. **验证**：
+3. **自动接入**：`src/data/docs.ts` 会在构建期自动发现该文件：
+   - 生成 `DOC_CATALOG` 条目与 `docsTree` 节点（未匹配到子分组时归入对应一级分组）；
+   - 出现在 `DOC_INDEX_TEXT`，AI 文档检索与开服 Agent 都能看到；
+   - 可用 `getDocContentByPath('core/optimization/实体优化.md')` 读取。
+4. **如需专有分组**：在 `src/data/docs.ts` 的 `SUBSECTION_TITLES` / `SUBSECTION_ORDER` 增加分组，并在 `classify()` 中补充匹配规则。
+5. **AI 插件搜索（仅插件类文档）**：在 `SearchBar.tsx` 的 `runAgent` 关键词判断中补充命中条件；`PLUGIN_DOCS` 会自动包含 `plugins/` 下的新文件。
+6. **验证**：
    - `npm run dev` 打开 `/docs`，确认侧边栏、搜索、AI 面板；
    - 检查锚点跳转、代码高亮、暗色模式；
+   - `npm test` 中的 `docs.test.ts` 会校验文档总数与节点数一致；
    - `npm run build` 确认 TypeScript 与打包通过。
 
-## 7. 索引漂移风险
+## 7. 索引一致性
 
-当前存在四套彼此独立的文档索引：
+统一数据源后，只剩一处需要人工同步：
 
-| 索引 | 位置 | 覆盖范围 | 维护方式 |
-| --- | --- | --- | --- |
-| `docsTree` | `DocsPage.tsx` | 38 篇 | 手写 import + 树节点 |
-| `DOC_INDEX` | `DocsSearch.tsx` | 80 个关键词映射 | 手写对象 |
-| `DOC_INDEX_DESC` | `DocsSearch.tsx` | 43 行说明 | 手写字符串 |
-| `DOC_INDEX` | `GuidePage.tsx` | 38 行路径说明 | 手写字符串 |
-| `pluginDocList` + 关键词 | `SearchBar.tsx` | 2 篇插件文档 | 手写数组 + if 条件 |
+| 内容 | 位置 | 维护方式 |
+| --- | --- | --- |
+| 文档目录、标题、分类 | `src/data/docs.ts` | 由文件路径与首个 H1 自动派生 |
+| AI 文档清单 | `DOC_INDEX_TEXT` | 由 `DOC_CATALOG` 自动生成 |
+| 侧边栏树 | `docsTree` | 由 `DOC_CATALOG` 自动生成 |
+| 插件文档子集 | `PLUGIN_DOCS` | 由路径前缀过滤自动生成 |
+| 手册总目录 | `src/assets/docs/目录.md` | 仍需人工维护 |
+| 专有分组规则 | `SUBSECTION_TITLES` / `classify()` | 新增目录结构时人工补充 |
 
-由此带来的实际问题：
-
-- `core/config/` 的 33 篇文档存在于磁盘和 `import.meta.glob`，但无法从侧边栏打开、无法被普通搜索命中；AI 检索若推荐这些路径，映射会失败。
-- 新增文档很容易只更新其中一两处，导致“搜得到但打不开”或“AI 说存在但侧边栏没有”。
-- `目录.md` 与实际文件也需人工同步。
-
-建议（作为后续改进方向）：
-
-1. 以 `import.meta.glob('../assets/docs/**/*.md', { eager: true })` 自动生成 `docsTree` 与索引；
-2. 从文件路径自动派生 `id`，避免手写唯一 id；
-3. 用 frontmatter（`title`、`category`、`order`、`keywords`）驱动目录与搜索；
-4. 将 `DOC_INDEX` 由文档 frontmatter 自动生成，消除三份重复索引。
+`src/data/docs.test.ts` 会断言 `DOC_CATALOG` 与 `docsTree` 的可阅读节点数一致，避免出现“列表有但树里没有”的漂移。
 
 ## 8. 构建影响
 
-- `?raw` 静态导入的 38 篇会进入主 bundle（或由 Rollup 拆分的 chunk），增加首屏体积。
-- `import.meta.glob` 懒加载的文档会为每篇生成独立 chunk，进入路由时按需请求。
-- 文档总量约 636 KB，当前规模可接受；若继续增长，建议全部改为懒加载 + 虚拟目录。
+- `src/data/docs.ts` 使用 `eager: true`，72 篇文档会进入主 bundle，首屏体积增加（当前约 2 MB 未压缩）。
+- 换取的收益是：侧边栏、检索与 AI Agent 共用同一份内容，无需运行期请求，也消除了四套手写索引。
+- 文档继续增长时，建议改为按目录拆分 glob 并配合动态导入，或在 `manualChunks` 中单独拆分文档 chunk。
 
 ## 9. 文档与 AI 的结合点
 
 | 功能 | 文档输入 | 截断策略 | 目的 |
 | --- | --- | --- | --- |
 | AI 插件搜索 | 插件推荐 / 反作弊前 3000 字符 | 3000 字符 | 提取插件名作为搜索关键词 |
-| 文档 AI 检索（DocsSearch） | `DOC_INDEX_DESC` 摘要 | 仅索引，不含全文 | 选出最相关文档 |
+| 文档 AI 检索（DocsSearch） | `DOC_INDEX_TEXT`（全部 72 篇路径） | 仅索引，不含全文 | 选出最相关文档 |
 | 文档问答（AskAIPanel） | 当前文档全文 | 无 | 基于当前文档回答 |
 | 简单开服 | `read_docs` 指定文档全文 | 无 | 生成开服步骤 |
 | 运维 Agent | `read_docs` 指定文档全文 | 无 | 配合本地文件诊断 |

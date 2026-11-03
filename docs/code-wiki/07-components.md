@@ -7,8 +7,8 @@
 | 组件 | 文件 | 行数 | 职责 | 主要依赖 |
 | --- | --- | --- | --- | --- |
 | `Header` | [Header.tsx](../../src/components/Header.tsx) | 129 | 顶部导航、主题切换、移动端菜单、GitHub 入口 | Store、Router、lucide、`MinecraftBlockIcon` |
-| `SearchBar` | [SearchBar.tsx](../../src/components/SearchBar.tsx) | 723 | 普通搜索、搜索历史、AI Agent 搜索、插件文档匹配 | Store、`searchAll`、`chatCompletionWithTools`、Router、Markdown |
-| `DocsSearch` | [DocsSearch.tsx](../../src/components/DocsSearch.tsx) | 653 | 文档普通检索、AI 文档检索、结果下拉 | `chatCompletionWithTools`、react-markdown |
+| `SearchBar` | [SearchBar.tsx](../../src/components/SearchBar.tsx) | 712 | 普通搜索、搜索历史、AI Agent 搜索、插件文档匹配 | Store、`searchAll`、`chatCompletionWithTools`、`src/data/docs.ts`、Router、Markdown |
+| `DocsSearch` | [DocsSearch.tsx](../../src/components/DocsSearch.tsx) | 492 | 文档普通检索、AI 文档检索、结果下拉 | `chatCompletionWithTools`、`src/data/docs.ts`、react-markdown |
 | `AskAIPanel` | [AskAIPanel.tsx](../../src/components/AskAIPanel.tsx) | 367 | 当前文档的 AI 问答、流式输出、中止、标题跳转 | `chatCompletionStream`、Store、SyntaxHighlighter |
 | `PluginCard` | [PluginCard.tsx](../../src/components/PluginCard.tsx) | 137 | 插件卡片、收藏菜单、跳转详情 | Store、`formatDownloads`、`PlatformIcon` |
 | `PlatformToggle` | [PlatformToggle.tsx](../../src/components/PlatformToggle.tsx) | 37 | 三平台启用开关 | Store、`PlatformIcon` |
@@ -118,8 +118,7 @@ export interface SearchFilters {
 | `categoryMap` | 15 个分类英文 id → 中文名 |
 | `serverTypes` | `paper/spigot/bukkit/folia/velocity/bungeecord/waterfall/fabric/forge/sponge` |
 | `mcVersions` | `1.21` 到 `1.8` 共 11 个 |
-| `pluginDocList` | 2 篇插件文档：`插件推荐.md`、`反作弊.md` |
-| `pluginDocs` | `import.meta.glob('../assets/docs/plugins/*.md', { query: '?raw', import: 'default' })` |
+| `pluginDocList` | 由 `PLUGIN_DOCS` 自动提供 `plugins/` 下的文档 |
 
 ### 3.5 普通搜索
 
@@ -220,7 +219,7 @@ interface DocsSearchProps {
 ### 4.3 AI 检索
 
 - 依赖 `isAIAvailable('search')`；`useMemo(..., [])` 只计算一次，修改设置后需重新挂载页面才更新。
-- prompt 包含 `DOC_INDEX_DESC`（43 行关键词→文档路径映射）与用户问题。
+- prompt 包含 `DOC_INDEX_TEXT`（全部 72 篇文档路径，由 `src/data/docs.ts` 自动生成）与用户问题。
 - 工具：
 
 ```ts
@@ -237,7 +236,7 @@ interface DocsSearchProps {
 - 强制 `toolChoice: { type: 'function', function: { name: 'search_docs' } }`。
 - 解析 `results` 后两次匹配：
   1. 用 `文档父路径/标题` 与 `doc_path` 做包含匹配；
-  2. 失败则用 `DOC_INDEX` 的 `关键词 → 路径` 反查，再按关键词匹配文档 id/title。
+  2. 通过 `resolveDocEntry(doc_path)` 直接解析文档，失败则丢弃该推荐。
 - 无法匹配的推荐被过滤；AI 回答（`summary`）支持 Markdown，标题可点击跳转。
 
 ### 4.4 状态与交互
@@ -260,10 +259,10 @@ interface DocsSearchProps {
 
 ### 4.5 已知限制
 
-- `DOC_INDEX` 与 `DOC_INDEX_DESC` 是手写映射，新增文档需手动维护。
+- `DOC_INDEX_TEXT` 由 `src/data/docs.ts` 自动生成，新增文档无需手动维护。
 - `isAIConfigured` 不随 Store 更新。
 - 普通搜索是朴素子串匹配，中文分词/同义词不支持。
-- 仅搜索 `docsTree` 中的 38 篇文档，`core/config/` 的 33 篇不参与（见 08）。
+- 普通检索覆盖全部 72 篇文档。
 
 ## 5. `AskAIPanel`
 

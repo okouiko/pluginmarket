@@ -139,6 +139,7 @@ function saveToStorage(key, value) {
 | AI 模型 | `models` | `AIModelConfig[]`，默认 5 个 GLM 模型 | `mc-plugin-market-models-secure`（AES-GCM 密文） | `updateModel`、`addModel`、`removeModel`；通过 `saveSecureModels` 持久化 |
 | AI 角色 | `roleAssignments` | `AIRoleAssignment[]`，默认 5 条 | `mc-plugin-market-roleAssignments` | `setRoleAssignment(role, modelId)`、`getModelForRole(role)` |
 | 代理 | `corsProxy` | `string`，默认 `https://api.allorigins.win/raw?url=` | `mc-plugin-market-corsProxy` | `setCorsProxy(url)` |
+| AI 代理 | `aiProxy` | `string`，默认空（直连） | `mc-plugin-market-aiProxy` | `setAiProxy(url)` |
 | 插件缓存 | `pluginCache` | `Record<id, { data, timestamp }>`，默认 `{}` | `mc-plugin-market-pluginCache` | `cachePlugin(plugin)`、`getCachedPlugin(id)` |
 | 搜索历史 | `searchHistory` | `string[]`，默认 `[]` | `mc-plugin-market-searchHistory` | `addSearchHistory(q)`（去重、上限 20）、`clearSearchHistory()` |
 
@@ -201,9 +202,9 @@ const { models, roleAssignments, updateModel } = useAppStore()
 
 | 类型 | 定义 | 当前使用情况 |
 | --- | --- | --- |
-| `AppSettings` | `models` + `roleAssignments` + `corsProxy` + `enabledPlatforms` | **未被源码使用**；实际字段分散在 Store |
+| `AppSettings` | `models` + `roleAssignments` + `corsProxy` + `aiProxy?` + `enabledPlatforms` | **未被源码使用**；实际字段分散在 Store |
 | `SearchFilters`（types） | `platforms`、`categories`、`version`、`sortBy`、`minDownloads` | **未被源码使用** |
-| `SearchFilters`（SearchBar） | `category`、`serverType`、`version`、`platforms` | AI 搜索与 URL 参数使用；MainPage 未消费除 `q` 外的参数 |
+| `SearchFilters`（SearchBar） | `category`、`serverType`、`version`、`platforms` | AI 搜索与 URL 参数使用；MainPage 已消费 category/server/version 并同步到筛选状态 |
 
 ### 6.1 主题与样式状态
 

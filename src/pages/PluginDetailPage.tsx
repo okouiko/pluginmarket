@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
-import type { PluginBase, Platform, ChatMessage } from '@/types'
+import type { PluginBase, ChatMessage } from '@/types'
 import { useAppStore } from '@/store'
 import { sanitizeHtml } from '@/utils/sanitize'
 import { getSpigetResource, getSpigetResourceDescription } from '@/services/spiget'
@@ -86,7 +86,10 @@ export default function PluginDetailPage() {
   async function loadPlugin() {
     setLoading(true)
     try {
-      const cacheId = `${platform}-${fullId}`
+      // 缓存写入键是 plugin.id：Hangar 为 hangar-owner-slug，其余为 <platform>-<id>
+      const cacheId = platform === 'hangar'
+        ? `hangar-${id}-${subId || ''}`
+        : `${platform}-${fullId}`
       const cached = getCachedPlugin(cacheId)
 
       let pluginData: PluginBase

@@ -126,6 +126,10 @@ interface AppState {
   corsProxy: string
   setCorsProxy: (url: string) => void
 
+  // AI 请求代理（生产 Web 环境可选中转，避免模型服务 CORS）
+  aiProxy: string
+  setAiProxy: (url: string) => void
+
   // 缓存
   pluginCache: Record<string, { data: PluginBase; timestamp: number }>
   cachePlugin: (plugin: PluginBase) => void
@@ -208,6 +212,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCorsProxy: (url) => {
     set({ corsProxy: url })
     saveToStorage('corsProxy', url)
+  },
+
+  aiProxy: loadFromStorage<string>('aiProxy', ''),
+  setAiProxy: (url) => {
+    set({ aiProxy: url })
+    saveToStorage('aiProxy', url)
   },
 
   pluginCache: loadFromStorage<Record<string, { data: PluginBase; timestamp: number }>>('pluginCache', {}),

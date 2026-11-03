@@ -11,15 +11,18 @@
 | Spigot 适配器 | `src/services/spiget.ts` | Spiget v2 搜索、详情、描述解码、分类、作者、最新/热门 | `searchSpiget`、`getSpigetResource` 等 9 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
 | Hangar 适配器 | `src/services/hangar.ts` | Hangar 项目搜索、详情、描述多路径兜底、热门、作者项目 | `searchHangar`、`getHangarProject` 等 5 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
 | Modrinth 适配器 | `src/services/modrinth.ts` | Modrinth 搜索（facets 限定插件）、详情、描述、热门、团队成员、用户项目、分类 | `searchModrinth`、`getModrinthProject` 等 7 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
-| 聚合搜索 | `src/services/search.ts` | 按启用平台并发搜索、错误隔离、下载量排序、展示格式化 | `searchAll`、`formatDownloads`、`getPlatformName`、`getPlatformColor` | Store、三个适配器 | `MainPage`、`SearchBar`、`PluginCard`、`PluginDetailPage` |
-| AI 服务 | `src/services/ai.ts` | 角色→模型解析、并发限流、普通/流式/工具调用、批量翻译、文档翻译、图片描述 | `ConcurrencyLimitError`、`chatCompletion`、`chatCompletionStream`、`chatCompletionWithTools`、`translateDocumentStream` 等 | Store、类型层、`BroadcastChannel`、`localStorage` | `SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginDetailPage`、`GuidePage`、`MainPage` |
+| 聚合搜索 | `src/services/search.ts` | 按启用平台并发搜索、错误回调、分页语义统一、下载量排序、展示格式化 | `searchAll`、`getPlatformPage`、`formatDownloads`、`getPlatformName` | Store、三个适配器 | `MainPage`、`SearchBar`、`PluginCard`、`PluginDetailPage` |
+| 客户端筛选 | `src/services/filters.ts` | 分类/服务端/版本/下载量过滤与排序 | `applyPluginFilters`、`sortPlugins`、`matchesCategory` | 类型层 | `MainPage`、测试 |
+| 文档数据源 | `src/data/docs.ts` | eager glob 全部 72 篇，自动生成目录树、AI 索引与插件文档子集 | `docsTree`、`DOC_CATALOG`、`DOC_INDEX_TEXT`、`PLUGIN_DOCS`、`resolveDocEntry` | Vite glob | `DocsPage`、`DocsSearch`、`GuidePage`、`SearchBar` |
+| AI 服务 | `src/services/ai.ts` | 角色→模型解析、并发限流（Web Locks）、普通/流式/工具调用、批量翻译、文档翻译、图片描述、AI 代理 | `ConcurrencyLimitError`、`chatCompletion`、`chatCompletionStream`、`chatCompletionWithTools`、`translateDocumentStream` 等 | Store、类型层、`BroadcastChannel`、`localStorage` | `SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginDetailPage`、`GuidePage`、`MainPage` |
 | 安全存储 | `src/services/secure-storage.ts` | AES-GCM 加密模型配置，密钥存 IndexedDB，明文旧数据迁移，重置清理 | `saveSecureModels`、`loadModelsWithMigration`、`clearSecureModels`、`isSecureStorageSupported` | Web Crypto、IndexedDB、localStorage | `store/index.ts`、`SettingsPage` |
 | HTML 消毒 | `src/utils/sanitize.ts` | 使用 DOMPurify 消毒 Spigot 等外部 HTML | `sanitizeHtml` | DOMPurify | `PluginDetailPage` |
 | 页面层 | `src/pages/*.tsx` | 路由级业务编排、页面状态、数据加载、AI 功能整合 | 7 个默认导出页面组件 | React、Router、Store、组件、服务层、文档资产 | `App` |
 | 组件层 | `src/components/*.tsx` | 可复用交互与展示；部分组件承载 Agent/检索/对话逻辑 | `Header`、`SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginCard`、`PlatformToggle`、`PlatformIcon` | React、Router、Store、服务层、AI、Markdown | 页面 |
-| 文档资产 | `src/assets/docs/**/*.md` | 开服知识库原文（72 篇） | `?raw` 字符串、`import.meta.glob` 模块 | 无 | `DocsPage`、`DocsSearch`、`AskAIPanel`、`GuidePage`、`SearchBar` |
+| 文档资产 | `src/assets/docs/**/*.md` | 开服知识库原文（72 篇） | 被 `src/data/docs.ts` eager glob 成字符串 | 无 | `src/data/docs.ts` |
+| 质量工具 | `eslint.config.js`、`*.test.ts` | 静态检查与单元测试 | ESLint flat config、Vitest 3 个测试文件 | ESLint、Vitest | `npm run lint` / `npm run test` |
 | 字体资产 | `src/assets/Minecraft-AE.ttf` | Minecraft 风格字体 | `@font-face` | 无 | `index.css` |
-| 桌面外壳 | `src-tauri/src/lib.rs`、`main.rs` | 初始化 Tauri Builder、注册插件、启动应用 | `run()` | tauri、三个官方插件 | 桌面可执行文件 |
+| 桌面外壳 | `src-tauri/src/lib.rs`、`main.rs` | 初始化 Tauri Builder、注册插件、启动应用 | `run()` | tauri、dialog/fs 两个插件 | 桌面可执行文件 |
 | 桌面配置 | `tauri.conf.json`、`capabilities/default.json` | 窗口、构建命令、bundle、权限范围 | — | — | Tauri 构建器 |
 | CI/CD | `.github/workflows/*.yml` | GitHub Pages 部署、多平台 Release | — | Node、Rust、Tauri CLI | GitHub Actions |
 
@@ -39,6 +42,8 @@ flowchart LR
     AI["services/ai.ts"]
     Secure["services/secure-storage.ts"]
     Sanitize["utils/sanitize.ts"]
+    Filters["services/filters.ts"]
+    DocsData["data/docs.ts"]
 
     Icons["components/PlatformIcons"]
     Card["components/PluginCard"]
@@ -87,6 +92,11 @@ flowchart LR
     Store --> AskAI
 
     Search --> Main
+    Filters --> Main
+    DocsData --> Docs
+    DocsData --> SearchBar
+    DocsData --> DocsSearch
+    DocsData --> Guide
     Spiget --> Main
     Hangar --> Main
     Modrinth --> Main
@@ -177,9 +187,9 @@ types  ←  store  ←  services  ←  components  ←  pages  ←  App  ←  ma
 | --- | --- | --- |
 | 页面绕过聚合入口直接调用平台适配器 | `MainPage` 的热门加载、`PluginDetailPage`、`AuthorPage` | 平台相关分页/映射逻辑分散；新增平台需改多处 |
 | `api-base` 依赖 Store | `api-base.ts#L10-L12` | 网络层与全局设置耦合，测试时需初始化 Store |
-| 组件包含业务/Agent 逻辑 | `SearchBar.tsx`、`DocsSearch.tsx`、`AskAIPanel.tsx` | 组件体积大（SearchBar 723 行、DocsSearch 653 行），复用与测试成本高 |
-| 页面直接使用 `import.meta.glob` 访问文档 | `SearchBar`、`GuidePage` | 文档加载方式存在三套实现，索引易漂移（见 08） |
-| `isTauri` 判定不一致 | `api-base.ts` 与 `GuidePage.tsx` | 极端环境下可能出现 API 路由与文件能力判定不同步 |
+| 组件包含业务/Agent 逻辑 | `SearchBar.tsx`、`DocsSearch.tsx`、`AskAIPanel.tsx` | 组件体积大（SearchBar 712 行、DocsSearch 492 行），复用与测试成本高 |
+| 文档索引曾分散在多处 | `DocsPage`、`DocsSearch`、`GuidePage`、`SearchBar` | 已由 `src/data/docs.ts` 统一；仅插件文档关键词命中仍是启发式 |
+| `isTauri` 判定曾不一致 | `api-base.ts` 与 `GuidePage.tsx` | 已统一为同时检测 `__TAURI__` / `__TAURI_INTERNALS__` |
 
 ### 3.3 循环依赖
 
@@ -221,6 +231,8 @@ types  ←  store  ←  services  ←  components  ←  pages  ←  App  ←  ma
 | `tailwindcss` | ^3.4.17 | 原子化样式 |
 | `postcss` / `autoprefixer` | ^8.4.49 / ^10.4.20 | 样式处理 |
 | `@tauri-apps/cli` | ^2.0.0 | Tauri 开发/构建命令 |
+| `eslint` / `@eslint/js` / `typescript-eslint` / `eslint-plugin-react-hooks` / `globals` | — | 静态检查 |
+| `vitest` | ^5 | 单元测试 |
 | `@types/react` / `@types/react-dom` / `@types/dompurify` | — | 类型声明 |
 
 ### 4.3 Rust 依赖

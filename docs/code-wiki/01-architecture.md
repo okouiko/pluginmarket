@@ -18,7 +18,7 @@
 | Web 生产 | `npm run build` + 静态托管 | `corsProxy + encodeURIComponent(真实 URL)`，默认 `https://api.allorigins.win/raw?url=` | 无 | 浏览器直连（受模型服务 CORS 策略影响） |
 | Tauri 桌面 | `npm run tauri dev` / `npx tauri build` | 直接请求 `https://api.spiget.org/v2` 等真实地址 | `plugin-fs` 只读、`plugin-dialog` 选择目录 | WebView 内直连 |
 
-环境判定逻辑集中在 [api-base.ts](../../src/services/api-base.ts#L4-L38)：`isTauri()` 同时检测 `window.__TAURI__` 与 `window.__TAURI_INTERNALS__`，`import.meta.env.DEV` 区分开发/生产。`GuidePage` 使用相同的双检测，见 [GuidePage.tsx](../../src/pages/GuidePage.tsx#L10-L11)。
+环境判定逻辑集中在 [api-base.ts](../../src/services/api-base.ts#L4-L38)：`isTauri()` 同时检测 `window.__TAURI__` 与 `window.__TAURI_INTERNALS__`，`import.meta.env.DEV` 区分开发/生产。`GuidePage` 使用相同的双检测，见 [GuidePage.tsx](../../src/pages/GuidePage.tsx#L12)。
 
 ## 3. 分层架构
 
@@ -103,10 +103,12 @@ flowchart TB
 ### 3.3 领域服务层
 
 - **平台适配器**（`services/spiget.ts`、`hangar.ts`、`modrinth.ts`）：各自理解上游 JSON 结构，输出统一 `PluginBase`。
-- **聚合入口**（`services/search.ts`）：根据 Store 中启用的平台并发请求，吞掉单个平台错误，再按下载量排序。
-- **网络基础设施**（`services/api-base.ts`）：决定 base URL、拼接 CORS 代理、统一错误抛出。
+- **聚合入口**（`services/search.ts`）：根据 Store 中启用的平台并发请求，统一分页语义，通过 `onError` 上报失败平台，再按下载量排序。
+- **客户端筛选**（`services/filters.ts`）：对聚合结果做分类/服务端/版本/下载量过滤与排序。
+- **文档数据源**（`data/docs.ts`）：eager glob 全部 72 篇文档，自动生成目录树、AI 索引与插件文档子集。
+- **网络基础设施**（`services/api-base.ts`）：决定 base URL、拼接 CORS 代理、默认 15 秒超时、统一错误抛出。
 - **AI 子系统**（`services/ai.ts`）：角色选模型、并发限流、流式解析、翻译分段、工具调用。
-- **静态内容**（`src/assets/docs/`）：Markdown 以 `?raw` 静态导入或 `import.meta.glob` 懒加载。
+- **静态内容**（`src/assets/docs/`）：由 `src/data/docs.ts` 以 eager `import.meta.glob` 载入，生成目录树与索引。
 
 ### 3.4 外壳层
 
@@ -220,13 +222,16 @@ pluginmarket/
 │   ├── types/index.ts          # 全部数据模型
 │   ├── store/index.ts          # Zustand Store + localStorage
 │   ├── services/
-│   │   ├── api-base.ts         # 环境路由与 fetch 封装
+│   │   ├── api-base.ts         # 环境路由、超时与 fetch 封装
 │   │   ├── spiget.ts
 │   │   ├── hangar.ts
 │   │   ├── modrinth.ts
-│   │   ├── search.ts           # 聚合搜索与格式化工具
+│   │   ├── search.ts           # 聚合搜索与分页/格式化
+│   │   ├── filters.ts          # 客户端筛选与排序
 │   │   ├── ai.ts               # AI 调用、限流、翻译、工具类型
 │   │   └── secure-storage.ts   # API Key AES-GCM 加密存储
+│   ├── data/
+│   │   └── docs.ts             # 72 篇文档单一数据源
 │   ├── utils/
 │   │   └── sanitize.ts         # DOMPurify HTML 消毒
 │   ├── pages/
@@ -271,9 +276,11 @@ pluginmarket/
 | API Key 加密 | `services/secure-storage.ts` | AES-GCM 加密，密钥不可导出并存入 IndexedDB；旧明文自动迁移 |
 | HTML 消毒 | `utils/sanitize.ts`、`rehype-sanitize` | Spigot HTML 与 Markdown 原始 HTML 在渲染前消毒 |
 | 缓存降级 | `getCachedPlugin` | 缓存过期返回 `undefined`，调用方回源 |
-| 错误隔离 | `searchAll` 的 `catch(() => [])` | 单平台失败不拖垮聚合结果 |
+| 错误隔离 | `searchAll` 的 `onError` + 单平台空数组降级 | 单平台失败不拖垮聚合结果，并向 UI 上报 |
 | 并发协调 | `ConcurrencyLimiter` | 同一模型跨标签页共享并发额度 |
-| 静态内容打包 | `?raw`、`import.meta.glob` | 文档随构建产物离线可用 |
+| 静态内容打包 | `data/docs.ts` 的 eager `import.meta.glob` | 目录树、检索与 Agent 共用同一份文档 |
+| 请求超时 | `api-base.ts` 的 AbortController | 默认 15 秒超时，支持外部取消 |
+| 客户端筛选 | `services/filters.ts` | 分类/服务端/版本/下载量过滤与排序 |
 | 渐进式桌面能力 | 动态 `import()` Tauri 插件 | Web 端不引入、桌面端按需启用 |
 | 桌面安全边界 | capabilities + CSP + 路径校验 | 只读文件、无 shell、限制目录穿越 |
 
@@ -283,16 +290,16 @@ pluginmarket/
 2. **无后端**：部署零成本、隐私数据留在本地；代价是 API Key 虽加密存储但仍在前端解密、跨域依赖第三方代理、无法隐藏业务逻辑。
 3. **适配器模式统一数据**：`PluginBase` 是 UI 的唯一输入契约，新增平台只需增加适配器与少量映射；代价是部分字段（评分、作者、分类）在不同平台语义不一致。
 4. **AI 角色化配置**：允许“便宜模型做翻译、强模型做决策”，并支持 OpenAI 兼容服务；代价是配置复杂度和多模型并发协调。
-5. **文档静态打包**：离线可用、搜索快；代价是包体随文档增长，新增文档需改多处索引（见 [08](08-docs-content.md)）。
+5. **文档静态打包**：离线可用、搜索快；文档目录与 AI 索引由 `src/data/docs.ts` 自动生成，代价是包体随文档增长（见 [08](08-docs-content.md)）。
 6. **桌面能力只补充文件系统**：Tauri 层几乎没有业务代码，降低 Rust 维护成本；代价是前端直接持有权限与路径拼接逻辑，安全边界依赖 capabilities 配置。
 
 ## 8. 架构层面的已知约束
 
-- 所有平台请求无超时/取消实现，弱网下可能长时间等待。
+- 所有平台请求默认 15 秒超时，但仍没有自动重试与退避。
 - 生产 Web 版依赖 `api.allorigins.win` 等第三方 CORS 代理的可用性与速率限制，用户可在设置页替换。
 - Tauri 已收紧为只读 FS + 限定 scope，并移除 shell 权限；但白名单外的服务器目录无法读取，详见 [09](09-tauri-desktop.md#6-安全模型与风险)。
 - Web 端（GitHub Pages）无法设置响应头 CSP，安全主要依赖渲染前消毒；Tauri 端已配置 CSP。
 - 页面直接调用平台适配器的现象存在（`MainPage`、`PluginDetailPage`、`AuthorPage`），聚合入口未被所有场景复用。
-- 项目没有自动化测试与 ESLint 配置，`npm run build` 的 `tsc -b` 是主要静态校验。
+- 已有 ESLint 与 Vitest 单元测试；缺少 E2E 测试与依赖审计。
 
 更完整的逐条问题清单见 [11 · 编码规范与已知问题](11-conventions-and-known-issues.md)。

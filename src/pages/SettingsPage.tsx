@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { resetAppData, useAppStore } from '@/store'
 import { isSecureStorageSupported } from '@/services/secure-storage'
 import type { AIModelConfig, AIRole, AIProvider } from '@/types'
-import { Settings, Plus, Trash2, Eye, EyeOff, RotateCcw, Globe, Bot, Languages, Search, MessageSquare, Sparkles, AlertCircle, Key, X } from 'lucide-react'
+import { Settings, Plus, Trash2, Eye, EyeOff, RotateCcw, Globe, Bot, Languages, Search, MessageSquare, Sparkles, Key, X } from 'lucide-react'
 
 const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot }> = {
   decision: { label: '决策/提示词', desc: '最聪明的模型，用于分析和决策', icon: Sparkles },
@@ -13,7 +13,7 @@ const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot
 }
 
 export default function SettingsPage() {
-  const { models, roleAssignments, updateModel, addModel, removeModel, setRoleAssignment, corsProxy, setCorsProxy } = useAppStore()
+  const { models, roleAssignments, updateModel, addModel, removeModel, setRoleAssignment, corsProxy, setCorsProxy, aiProxy, setAiProxy } = useAppStore()
   const secureStorageSupported = isSecureStorageSupported()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [newModelOpen, setNewModelOpen] = useState(false)
@@ -82,7 +82,23 @@ export default function SettingsPage() {
         />
       </section>
 
-      {/* AI Models */}
+      {/* AI Proxy */}
+      <section className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-5 mb-6">
+        <h2 className="font-minecraft text-sm font-medium mb-3 flex items-center gap-2 text-gray-800 dark:text-dark-text">
+          <Globe className="w-4 h-4 text-mc-green" />
+          AI 请求代理
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-dark-text-secondary mb-3">
+          可选。在线版若模型服务被 CORS 拦截，可填写支持 POST 与 Authorization 的中转前缀；留空则直连模型服务。
+        </p>
+        <input
+          type="text"
+          value={aiProxy}
+          onChange={(e) => setAiProxy(e.target.value)}
+          placeholder="https://your-proxy.example.com/?url="
+          className="w-full px-3 py-2 rounded-lg border border-mc-border dark:border-dark-border bg-white dark:bg-dark-bg text-sm text-gray-800 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-mc-green"
+        />
+      </section>
       <section className="bg-white dark:bg-dark-card rounded-xl border border-mc-border dark:border-dark-border p-5 mb-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-minecraft text-sm font-medium flex items-center gap-2 text-gray-800 dark:text-dark-text">

@@ -37,8 +37,13 @@ function getBaseUrl(platform: Platform): string {
   }
 }
 
-// 通用 fetch 封装
-async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit): Promise<T> {
+// 通用 fetch 封装（默认 15 秒超时，支持外部 AbortSignal）
+async function apiFetch<T>(
+  platform: Platform,
+  path: string,
+  init?: RequestInit,
+  timeoutMs = 15000,
+): Promise<T> {
   const base = getBaseUrl(platform)
   let url: string
 
@@ -56,19 +61,41 @@ async function apiFetch<T>(platform: Platform, path: string, init?: RequestInit)
     url = `${proxy}${encodeURIComponent(directUrls[platform] + path)}`
   }
 
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      'Accept': 'application/json',
-      ...init?.headers,
-    },
-  })
+  const controller = new AbortController()
+  const externalSignal = init?.signal
+  const abortFromExternal = () => controller.abort()
 
-  if (!res.ok) {
-    throw new Error(`API Error: ${res.status} ${res.statusText}`)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort()
+    else externalSignal.addEventListener('abort', abortFromExternal, { once: true })
   }
 
-  return res.json()
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+        ...init?.headers,
+      },
+    })
+
+    if (!res.ok) {
+      throw new Error(`API Error: ${res.status} ${res.statusText}`)
+    }
+
+    return await res.json()
+  } catch (error) {
+    if (controller.signal.aborted) {
+      if (externalSignal?.aborted) throw new Error('API Error: 请求已取消')
+      throw new Error(`API Error: 请求超时（${timeoutMs}ms）`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', abortFromExternal)
+  }
 }
 
 export { apiFetch, getBaseUrl }

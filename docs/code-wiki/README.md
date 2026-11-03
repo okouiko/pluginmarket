@@ -53,6 +53,9 @@ npm install          # 安装依赖
 npm run dev          # Web 开发模式（Vite，默认 http://localhost:5173）
 npm run tauri dev    # Tauri 桌面开发模式
 npm run build        # 类型检查 + 前端构建（输出 dist/）
+npm run lint         # ESLint
+npm test             # Vitest 单元测试
+npm run typecheck    # 仅类型检查
 npx tauri build      # 构建桌面安装包
 ```
 
@@ -63,8 +66,9 @@ npx tauri build      # 构建桌面安装包
 | 项目 | 值 |
 | --- | --- |
 | 应用版本 | 1.0.2 |
-| 前端源码规模 | `src/` 约 8,100 行 TS/TSX（不含文档与样式） |
-| 内置文档 | `src/assets/docs/` 共 72 篇 Markdown |
+| 前端源码规模 | `src/` 约 8,600 行 TS/TSX（不含文档与样式） |
+| 内置文档 | `src/assets/docs/` 共 72 篇 Markdown，全部自动进入侧边栏与 AI 索引 |
+| 质量工具 | ESLint flat config + Vitest（3 个测试文件 / 9 个用例） |
 | 页面路由 | 9 条（`/`、`/browse`、`/docs`、`/guide`、`/plugin/:platform/:id`、`/plugin/:platform/:id/:subId`、`/favorites`、`/author/:platform/:authorId`、`/settings`） |
 | 插件平台 | Spigot / Hangar / Modrinth |
 | AI 角色 | decision / search / chat / translate / vision |

@@ -4,21 +4,43 @@ import { searchSpiget } from './spiget'
 import { searchHangar } from './hangar'
 import { searchModrinth } from './modrinth'
 
+export interface SearchAllOptions {
+  onError?: (platform: Platform, error: unknown) => void
+}
+
+/**
+ * 各平台的分页参数语义不同：Spigot 是 1 基页码，Hangar/Modrinth 是 0 基页码。
+ */
+export function getPlatformPage(platform: Platform, page: number): number {
+  return platform === 'spigot' ? page : page - 1
+}
+
 // 统一搜索：并发查询所有启用的平台
-export async function searchAll(query: string, page = 1, size = 10): Promise<PluginBase[]> {
+export async function searchAll(
+  query: string,
+  page = 1,
+  size = 10,
+  options: SearchAllOptions = {},
+): Promise<PluginBase[]> {
   const platforms = useAppStore.getState().enabledPlatforms
   const results: PluginBase[] = []
+
+  const run = (platform: Platform, promise: Promise<PluginBase[]>): Promise<PluginBase[]> =>
+    promise.catch((error) => {
+      options.onError?.(platform, error)
+      return []
+    })
 
   const promises: Promise<PluginBase[]>[] = []
 
   if (platforms.includes('spigot')) {
-    promises.push(searchSpiget(query, page, size).catch(() => []))
+    promises.push(run('spigot', searchSpiget(query, getPlatformPage('spigot', page), size)))
   }
   if (platforms.includes('hangar')) {
-    promises.push(searchHangar(query, page - 1, size).catch(() => []))
+    promises.push(run('hangar', searchHangar(query, getPlatformPage('hangar', page), size)))
   }
   if (platforms.includes('modrinth')) {
-    promises.push(searchModrinth(query, (page - 1) * size, size).catch(() => []))
+    promises.push(run('modrinth', searchModrinth(query, getPlatformPage('modrinth', page), size)))
   }
 
   const allResults = await Promise.all(promises)

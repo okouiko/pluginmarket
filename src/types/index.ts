@@ -179,6 +179,7 @@ export interface AppSettings {
   models: AIModelConfig[]
   roleAssignments: AIRoleAssignment[]
   corsProxy: string
+  aiProxy?: string
   enabledPlatforms: Platform[]
 }
 
