@@ -33,33 +33,36 @@
 
 | 名称 | 位置 | 签名 / 值 | 说明 |
 | --- | --- | --- | --- |
-| `STORAGE_KEY` | `src/store/index.ts#L4` | `'mc-plugin-market'` | localStorage 前缀 |
-| `loadFromStorage` | `src/store/index.ts#L6-L13` | `<T>(key, fallback) => T` | 同步读取 |
-| `saveToStorage` | `src/store/index.ts#L15-L17` | `(key, value) => void` | 同步写入 |
-| `defaultModels` | `src/store/index.ts#L20-L76` | `AIModelConfig[]` | 5 个默认 GLM 模型 |
-| `defaultRoleAssignments` | `src/store/index.ts#L78-L84` | `AIRoleAssignment[]` | 5 个角色默认分配 |
-| `AppState` | `src/store/index.ts#L86-L123` | `interface` | Store 状态与 Action 类型 |
-| `useAppStore` | `src/store/index.ts#L125-L222` | `create<AppState>(...)` | 全局 Store 实例 |
+| `STORAGE_KEY` | `src/store/index.ts#L5` | `'mc-plugin-market'` | localStorage 前缀 |
+| `loadFromStorage` | `src/store/index.ts#L7-L14` | `<T>(key, fallback) => T` | 同步读取 |
+| `saveToStorage` | `src/store/index.ts#L16-L18` | `(key, value) => void` | 同步写入 |
+| `saveModels` | `src/store/index.ts#L24-L32` | `(models: AIModelConfig[]) => void` | 串行加密持久化模型配置 |
+| `defaultModels` | `src/store/index.ts#L35-L91` | `AIModelConfig[]` | 5 个默认 GLM 模型 |
+| `defaultRoleAssignments` | `src/store/index.ts#L93-L99` | `AIRoleAssignment[]` | 5 个角色默认分配 |
+| `AppState` | `src/store/index.ts#L101-L138` | `interface` | Store 状态与 Action 类型 |
+| `useAppStore` | `src/store/index.ts#L140-L238` | `create<AppState>(...)` | 全局 Store 实例 |
+| `loadModelsWithMigration` | `src/store/index.ts#L240-L245` | `Promise<void>` | 启动时解密/迁移模型配置 |
+| `resetAppData` | `src/store/index.ts#L250-L260` | `() => Promise<void>` | 清理本应用所有本地数据与密钥库 |
 
 ### 2.1 Store Action
 
 | Action | 位置 | 签名 |
 | --- | --- | --- |
-| `toggleDarkMode` | `#L127-L136` | `() => void` |
-| `togglePlatform` | `#L139-L144` | `(p: Platform) => void` |
-| `addFavorite` | `#L147-L152` | `(plugin: PluginBase) => void` |
-| `removeFavorite` | `#L153-L157` | `(id: string) => void` |
-| `isFavorite` | `#L158` | `(id: string) => boolean` |
-| `updateModel` | `#L162-L166` | `(id, updates: Partial<AIModelConfig>) => void` |
-| `addModel` | `#L167-L171` | `(model: AIModelConfig) => void` |
-| `removeModel` | `#L172-L176` | `(id: string) => void` |
-| `setRoleAssignment` | `#L177-L185` | `(role: AIRole, modelId: string) => void` |
-| `getModelForRole` | `#L186-L190` | `(role: AIRole) => AIModelConfig \| undefined` |
-| `setCorsProxy` | `#L193-L196` | `(url: string) => void` |
-| `cachePlugin` | `#L199-L203` | `(plugin: PluginBase) => void` |
-| `getCachedPlugin` | `#L204-L210` | `(id: string) => PluginBase \| undefined` |
-| `addSearchHistory` | `#L213-L218` | `(query: string) => void` |
-| `clearSearchHistory` | `#L219-L222` | `() => void` |
+| `toggleDarkMode` | `#L142-L151` | `() => void` |
+| `togglePlatform` | `#L154-L159` | `(p: Platform) => void` |
+| `addFavorite` | `#L162-L167` | `(plugin: PluginBase) => void` |
+| `removeFavorite` | `#L168-L172` | `(id: string) => void` |
+| `isFavorite` | `#L173` | `(id: string) => boolean` |
+| `updateModel` | `#L177-L181` | `(id, updates: Partial<AIModelConfig>) => void` |
+| `addModel` | `#L182-L186` | `(model: AIModelConfig) => void` |
+| `removeModel` | `#L187-L191` | `(id: string) => void` |
+| `setRoleAssignment` | `#L192-L200` | `(role: AIRole, modelId: string) => void` |
+| `getModelForRole` | `#L201-L205` | `(role: AIRole) => AIModelConfig \| undefined` |
+| `setCorsProxy` | `#L208-L211` | `(url: string) => void` |
+| `cachePlugin` | `#L214-L218` | `(plugin: PluginBase) => void` |
+| `getCachedPlugin` | `#L219-L226` | `(id: string) => PluginBase \| undefined` |
+| `addSearchHistory` | `#L228-L233` | `(query: string) => void` |
+| `clearSearchHistory` | `#L234-L237` | `() => void` |
 
 ### 2.2 localStorage 键
 
@@ -68,7 +71,8 @@
 | `mc-plugin-market-darkMode` | `boolean` |
 | `mc-plugin-market-platforms` | `Platform[]` |
 | `mc-plugin-market-favorites` | `Favorite[]` |
-| `mc-plugin-market-models` | `AIModelConfig[]`（含明文 API Key） |
+| `mc-plugin-market-models-secure` | `AIModelConfig[]` 的 AES-GCM 密文（`v1.iv.cipher`） |
+| `mc-plugin-market-models`（旧键） | 旧版明文模型配置，仅用于一次性迁移后删除 |
 | `mc-plugin-market-roleAssignments` | `AIRoleAssignment[]` |
 | `mc-plugin-market-corsProxy` | `string` |
 | `mc-plugin-market-pluginCache` | `Record<id, { data, timestamp }>` |
@@ -79,7 +83,7 @@
 
 | 名称 | 位置 | 签名 | 说明 |
 | --- | --- | --- | --- |
-| `isTauri` | `src/services/api-base.ts#L5-L7` | `() => boolean` | 检测 `window.__TAURI__` |
+| `isTauri` | `src/services/api-base.ts#L4-L7` | `() => boolean` | 检测 `__TAURI__` 或 `__TAURI_INTERNALS__` |
 | `getBaseUrl` | `src/services/api-base.ts#L10-L38` | `(platform: Platform) => string` | 环境相关 base |
 | `apiFetch` | `src/services/api-base.ts#L41-L72` | `<T>(platform, path, init?) => Promise<T>` | 统一 fetch |
 | `spigetIconUrl` | `src/services/spiget.ts#L4-L9` | `(r: SpigetResource) => string` | 图标 URL |
@@ -114,6 +118,22 @@
 | `formatRating` | `src/services/search.ts#L43-L46` | `(rating?: number) => number` | 评分（未用） |
 | `getPlatformColor` | `src/services/search.ts#L49-L55` | `(platform) => string` | 平台色（未用） |
 | `getPlatformName` | `src/services/search.ts#L58-L64` | `(platform) => string` | 平台名 |
+
+### 3.1 安全存储与 HTML 消毒
+
+| 名称 | 位置 | 签名 | 说明 |
+| --- | --- | --- | --- |
+| `isSecureStorageSupported` | `src/services/secure-storage.ts#L13-L21` | `() => boolean` | 检测 Web Crypto 与 IndexedDB |
+| `openDatabase` | `src/services/secure-storage.ts#L23-L35` | `() => Promise<IDBDatabase>` | 打开密钥库 |
+| `readStoredKey` | `src/services/secure-storage.ts#L37-L56` | `() => Promise<CryptoKey \| null>` | 读取不可导出 AES 密钥 |
+| `createAndStoreKey` | `src/services/secure-storage.ts#L58-L82` | `() => Promise<CryptoKey>` | 生成并保存 AES-GCM 密钥 |
+| `getOrCreateKey` | `src/services/secure-storage.ts#L84-L94` | `() => Promise<CryptoKey>` | 缓存密钥 Promise |
+| `encryptJson` | `src/services/secure-storage.ts#L109-L115` | `(value) => Promise<string>` | AES-GCM 加密为 `v1.iv.cipher` |
+| `decryptJson` | `src/services/secure-storage.ts#L117-L132` | `<T>(payload) => Promise<T \| null>` | 解密并解析 |
+| `saveSecureModels` | `src/services/secure-storage.ts#L138-L142` | `(models) => Promise<void>` | 加密写入 localStorage |
+| `loadModelsWithMigration` | `src/services/secure-storage.ts#L148-L174` | `<T>(fallback) => Promise<T>` | 旧明文迁移 + 解密读取 |
+| `clearSecureModels` | `src/services/secure-storage.ts#L176-L189` | `() => Promise<void>` | 删除密文、旧键与密钥库 |
+| `sanitizeHtml` | `src/utils/sanitize.ts#L7-L13` | `(html: string) => string` | DOMPurify 消毒外部 HTML |
 
 ## 4. AI 服务
 
@@ -181,26 +201,27 @@
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `ApiKeyWarning` | `#L16-L42` | API Key 提示卡片 |
-| `loadPlugin` | `#L76-L106` | 详情加载与缓存 |
-| `handleChat` | `#L108-L159` | AI 对话 |
-| `handleTranslate` | `#L161-L184` | 描述翻译 |
+| `ApiKeyWarning` | `#L18-L44` | API Key 提示卡片 |
+| `safeDescription` / `safeTranslatedDescription` | `#L69-L76` | DOMPurify 消毒后的描述 |
+| `loadPlugin` | `#L86-L116` | 详情加载与缓存 |
+| `handleChat` | `#L118-L169` | AI 对话 |
+| `handleTranslate` | `#L171-L194` | 描述翻译 |
 
 ### 5.3 DocsPage
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `docsTree` | `#L67-L184` | 38 篇文档目录树 |
-| `findDocContent` | `#L187-L198` | 递归查内容 |
-| `findDocTitle` | `#L201-L212` | 递归查标题 |
-| `getAllDocsFlat` | `#L215-L236` | 扁平化用于搜索 |
-| `getFirstDocId` | `#L239-L248` | 初始文档 |
-| `generateHeadingSlug` | `#L251-L258` | 标题锚点 |
-| `TreeNode` | `#L270-L335` | 目录树节点组件 |
-| `handleSelectDoc` | `#L356-L379` | 选中并展开父级 |
-| `handleScrollToHeading` | `#L382-L389` | 滚动到锚点 |
-| `markdownComponents` | `#L392-L441` | 代码高亮与标题 id |
-| `handleToggle` | `#L443-L453` | 展开/折叠 |
+| `docsTree` | `#L68-L185` | 38 篇文档目录树 |
+| `findDocContent` | `#L188-L199` | 递归查内容 |
+| `findDocTitle` | `#L202-L213` | 递归查标题 |
+| `getAllDocsFlat` | `#L216-L237` | 扁平化用于搜索 |
+| `getFirstDocId` | `#L240-L249` | 初始文档 |
+| `generateHeadingSlug` | `#L252-L259` | 标题锚点 |
+| `TreeNode` | `#L271-L336` | 目录树节点组件 |
+| `handleSelectDoc` | `#L357-L380` | 选中并展开父级 |
+| `handleScrollToHeading` | `#L383-L390` | 滚动到锚点 |
+| `markdownComponents` | `#L393-L442` | 代码高亮与标题 id |
+| `handleToggle` | `#L444-L454` | 展开/折叠 |
 
 ### 5.4 GuidePage
 
@@ -226,8 +247,9 @@
 | `TOOLS` | `#L638-L657` | `read_docs` 工具 |
 | `SimpleServerPreset` | `#L669-L954` | 简单开服 |
 | `handleSend`（Simple） | `#L737-L864` | 工具调用 + 流式回答 |
-| `readServerFile` | `#L959-L987` | 读取本地文件 |
-| `listServerFiles` | `#L989-L1019` | 列目录 |
+| `resolveServerPath` | `#L959-L980` | 限制相对路径在服务器根目录内 |
+| `readServerFile` | `#L983-L999` | 读取本地文件（只读 FS） |
+| `listServerFiles` | `#L1001-L1019` | 列目录（只读 FS） |
 | `selectDirectory` | `#L1021-L1040` | 目录选择 |
 | `AGENT_SYSTEM_PROMPT` | `#L1043-L1062` | Agent 系统提示 |
 | `AGENT_TOOLS` | `#L1065-L1118` | 三个工具定义 |
@@ -247,10 +269,11 @@
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `roleLabels` | `#L6-L12` | 5 个角色展示信息 |
-| `toggleKeyVisibility` | `#L29-L31` | Key 显隐 |
-| `handleAddModel` | `#L33-L49` | 新增模型 |
-| `resetDefaults` | `#L51-L56` | 清空 localStorage 并刷新 |
+| `roleLabels` | `#L7-L13` | 5 个角色展示信息 |
+| `secureStorageSupported` | `#L17` | 当前环境是否支持加密存储 |
+| `toggleKeyVisibility` | `#L31-L33` | Key 显隐 |
+| `handleAddModel` | `#L35-L51` | 新增模型 |
+| `resetDefaults` | `#L53-L58` | 调用 `resetAppData` 并刷新 |
 
 ### 5.6 其他页面
 
@@ -331,10 +354,10 @@
 
 | 名称 | 位置 | 说明 |
 | --- | --- | --- |
-| `run()` | `src-tauri/src/lib.rs#L1-L9` | 初始化 Builder 与三个插件 |
+| `run()` | `src-tauri/src/lib.rs#L1-L8` | 初始化 Builder 与 dialog/fs 两个插件 |
 | `main()` | `src-tauri/src/main.rs#L8-L10` | 调用 `mc_plugin_market_lib::run()` |
-| `capabilities/default.json` | `src-tauri/capabilities/default.json` | 主窗口权限与 FS scope |
-| `tauri.conf.json` | `src-tauri/tauri.conf.json` | 窗口、构建、bundle、插件配置 |
+| `capabilities/default.json` | `src-tauri/capabilities/default.json` | 主窗口只读 FS 权限与目录 scope |
+| `tauri.conf.json` | `src-tauri/tauri.conf.json` | 窗口、构建、bundle、CSP 配置 |
 
 ## 8. 常量与配置速查
 

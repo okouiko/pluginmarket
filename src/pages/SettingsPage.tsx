@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useAppStore } from '@/store'
+import { resetAppData, useAppStore } from '@/store'
+import { isSecureStorageSupported } from '@/services/secure-storage'
 import type { AIModelConfig, AIRole, AIProvider } from '@/types'
 import { Settings, Plus, Trash2, Eye, EyeOff, RotateCcw, Globe, Bot, Languages, Search, MessageSquare, Sparkles, AlertCircle, Key, X } from 'lucide-react'
 
@@ -13,6 +14,7 @@ const roleLabels: Record<AIRole, { label: string; desc: string; icon: typeof Bot
 
 export default function SettingsPage() {
   const { models, roleAssignments, updateModel, addModel, removeModel, setRoleAssignment, corsProxy, setCorsProxy } = useAppStore()
+  const secureStorageSupported = isSecureStorageSupported()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [newModelOpen, setNewModelOpen] = useState(false)
   const [newModel, setNewModel] = useState<Partial<AIModelConfig>>({
@@ -48,9 +50,9 @@ export default function SettingsPage() {
     setNewModel({ provider: 'openai-compatible', model: '', name: '', apiKey: '', baseUrl: '', maxConcurrency: 5, maxContext: 8000, enabled: true })
   }
 
-  const resetDefaults = () => {
+  const resetDefaults = async () => {
     if (confirm('确定要重置所有设置为默认值吗？')) {
-      localStorage.clear()
+      await resetAppData()
       window.location.reload()
     }
   }
@@ -102,6 +104,11 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
+        <p className="text-xs text-gray-500 dark:text-dark-text-secondary mb-3">
+          {secureStorageSupported
+            ? 'API Key 仅保存在本机，并使用 AES-GCM 加密后存入浏览器存储。'
+            : '当前环境不支持 Web Crypto，API Key 仅在本次会话内有效，不会持久化。'}
+        </p>
 
         {/* New model dialog - AT THE TOP */}
         {newModelOpen && (

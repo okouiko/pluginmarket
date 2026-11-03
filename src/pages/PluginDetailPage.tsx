@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, Heart, ExternalLink, Download, Star, User, MessageSquare, Languages, Loader2, Send, Sparkles, AlertCircle, FileText } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import type { PluginBase, Platform, ChatMessage } from '@/types'
 import { useAppStore } from '@/store'
+import { sanitizeHtml } from '@/utils/sanitize'
 import { getSpigetResource, getSpigetResourceDescription } from '@/services/spiget'
 import { getHangarProject, getHangarProjectDescription } from '@/services/hangar'
 import { getModrinthProject, getModrinthProjectDescription } from '@/services/modrinth'
@@ -64,6 +66,14 @@ export default function PluginDetailPage() {
 
   const fav = plugin ? isFavorite(plugin.id) : false
   const fullId = subId ? `${id}/${subId}` : id
+  const safeDescription = useMemo(
+    () => sanitizeHtml(description || '<p>暂无描述</p>'),
+    [description],
+  )
+  const safeTranslatedDescription = useMemo(
+    () => sanitizeHtml(translatedDesc || description || '<p>暂无描述</p>'),
+    [translatedDesc, description],
+  )
 
   useEffect(() => {
     if (platform && id) loadPlugin()
@@ -320,11 +330,11 @@ ${description.substring(0, 3000)}
             {platform === 'spigot' ? (
               <div 
                 className="spigot-html-content"
-                dangerouslySetInnerHTML={{ __html: description || '<p>暂无描述</p>' }} 
+                dangerouslySetInnerHTML={{ __html: safeDescription }}
               />
             ) : (
-              <ReactMarkdown 
-                rehypePlugins={[rehypeRaw]} 
+              <ReactMarkdown
+                rehypePlugins={[rehypeRaw, rehypeSanitize]}
                 remarkPlugins={[remarkGfm]}
                 components={{
                   // 自定义列表渲染
@@ -448,11 +458,11 @@ ${description.substring(0, 3000)}
                     {platform === 'spigot' ? (
                       <div 
                         className="spigot-html-content"
-                        dangerouslySetInnerHTML={{ __html: translatedDesc || description || '' }} 
+                        dangerouslySetInnerHTML={{ __html: safeTranslatedDescription }}
                       />
                     ) : (
-                      <ReactMarkdown 
-                        rehypePlugins={[rehypeRaw]} 
+                      <ReactMarkdown
+                        rehypePlugins={[rehypeRaw, rehypeSanitize]}
                         remarkPlugins={[remarkGfm]}
                       >
                         {translatedDesc || description || ''}

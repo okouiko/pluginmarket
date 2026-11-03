@@ -38,7 +38,6 @@ src-tauri/
 
 ```toml
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
@@ -70,7 +69,6 @@ fn main() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .run(tauri::generate_context!())
@@ -95,77 +93,70 @@ pub fn run() {
 | `app.windows[0].width/height` | `1200 × 800` | 初始窗口 |
 | `app.windows[0].resizable` | `true` | 可调整 |
 | `app.windows[0].fullscreen` | `false` | 非全屏 |
-| `app.security.csp` | `null` | **关闭 CSP** |
+| `app.security.csp` | 严格 CSP 字符串 | 生产环境限制脚本、样式、图片、网络与框架来源 |
+| `app.security.devCsp` | 开发 CSP 字符串 | 额外允许 `http://localhost:5173` 与 `ws://localhost:5173`，并允许 `unsafe-eval` 供开发热更新 |
 | `bundle.active` | `true` | 启用打包 |
 | `bundle.targets` | `"all"` | 当前平台所有可用格式 |
 | `bundle.icon` | 5 个图标 | 32/128/128@2x/icns/ico |
-| `plugins.shell.open` | `true` | 允许 shell 插件打开链接 |
 
-窗口没有显式 `label`，Tauri 默认标签为 `main`，与 capabilities 的 `"windows": ["main"]` 对应。
+窗口没有显式 `label`，Tauri 默认标签为 `main`，与 capabilities 的 `"windows": ["main"]` 对应。`plugins` 配置块已移除（不再加载 shell 插件）。
+
+生产 CSP：
+
+```text
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data: https:; font-src 'self' data:;
+connect-src 'self' ipc: http://ipc.localhost https:;
+object-src 'none'; base-uri 'self'; frame-src 'none'; form-action 'none'
+```
+
+`connect-src` 允许 `https:` 以访问插件 API 与大模型服务；`ipc:` 与 `http://ipc.localhost` 供 Tauri IPC 使用。
 
 ## 3. 权限与能力 `capabilities/default.json`
 
-### 3.1 基础权限
+当前采用只读最小权限：
+
+```json
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "fs:allow-read-text-file",
+    "fs:allow-read-dir",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOWNLOAD/**" }
+      ]
+    }
+  ]
+}
+```
 
 | 权限 | 作用 |
 | --- | --- |
 | `core:default` | Tauri 核心默认能力 |
-| `shell:allow-open` | 用系统默认程序打开 URL/文件 |
-| `dialog:default` | 原生对话框（目录选择） |
-| `fs:default` | 文件系统默认能力 |
+| `dialog:allow-open` | 仅允许打开目录/文件选择对话框 |
+| `fs:allow-read-text-file` | 读取文本文件 |
+| `fs:allow-read-dir` | 枚举目录 |
+| `fs:scope` | 将可读范围限制在 HOME / DOCUMENT / DESKTOP / DOWNLOAD |
 
-### 3.2 Shell 执行权限
+已移除的权限：
 
-```json
-{
-  "identifier": "shell:allow-execute",
-  "allow": [
-    { "name": "cmd", "cmd": "cmd", "args": true },
-    { "name": "powershell", "cmd": "powershell", "args": true }
-  ]
-}
-```
+- `shell:allow-open`、`shell:allow-execute`、`shell:allow-spawn`、`shell:allow-stdin-write`、`shell:allow-kill`
+- `fs:allow-write` / `write-file` / `write-text-file` / `remove` / `rename` / `copy-file` / `mkdir`
+- 通配全盘范围 `"**"`
 
-- `args: true` 表示允许任意参数。
-- 同时授予 `shell:allow-spawn`、`shell:allow-stdin-write`、`shell:allow-kill`。
-- 前端仅使用 `Command.create('cmd', ['/c', 'type'|'dir', path])`，但权限本身远宽于实际用途。
+后果：
 
-### 3.3 FS 权限
-
-授予了：
-
-- `fs:allow-read` / `write` / `exists` / `mkdir` / `remove` / `rename` / `copy-file`
-- `fs:allow-read-dir` / `read-file` / `read-text-file`
-- `fs:allow-write-file` / `write-text-file`
-
-文件范围：
-
-```json
-{
-  "identifier": "fs:scope",
-  "allow": [
-    { "path": "$HOME/**" },
-    { "path": "$APPDATA/**" },
-    { "path": "$LOCALAPPDATA/**" },
-    { "path": "$DOCUMENT/**" },
-    { "path": "$DESKTOP/**" },
-    { "path": "$DOWNLOAD/**" },
-    { "path": "**" }
-  ]
-}
-```
-
-最后的 `"**"` 实际覆盖整个文件系统，使前面几个目录白名单失去限制意义。**应用可以读写任意用户有权限的文件**。前端目前只读，但权限并未收敛为只读。
-
-### 3.4 CSP
-
-`"csp": null` 表示不注入内容安全策略。结合：
-
-- Spigot 详情使用 `dangerouslySetInnerHTML`；
-- Markdown 文档启用 `rehypeRaw`；
-- 应用拥有宽泛的 FS/Shell 权限；
-
-一旦出现 XSS，攻击者可能读取 API Key、读取任意文件、执行命令。详见第 6 节。
+- Agent 只能读取、不能修改或删除文件。
+- 用户选择 `$HOME` 等白名单之外的服务器目录时，读取会被 Tauri 拒绝；这是安全换来的限制。
+- 应用不再具备执行系统命令的能力。
 
 ## 4. 前端如何调用桌面能力
 
@@ -174,16 +165,14 @@ pub fn run() {
 ```ts
 // api-base.ts
 export function isTauri(): boolean {
-  return !!(window as any).__TAURI__
+  return !!(window as any).__TAURI__ || !!(window as any).__TAURI_INTERNALS__
 }
 
 // GuidePage.tsx
 const isTauri = '__TAURI__' in window || '__TAURI_INTERNALS__' in window
 ```
 
-Tauri 2 默认注入 `__TAURI_INTERNALS__`，`withGlobalTauri` 配置才会注入 `__TAURI__`。当前 `tauri.conf.json` 未设置 `withGlobalTauri`，因此 `api-base.isTauri()` 在 Tauri 2 下可能返回 `false`，导致 API 走开发代理或生产 CORS 代理路径而不是直连。`GuidePage` 的判定更稳健。
-
-> 这是一个潜在兼容性问题。如果桌面端出现 CORS 或代理依赖，应优先检查 `isTauri()`。
+Tauri 2 默认注入 `__TAURI_INTERNALS__`，`withGlobalTauri` 配置才会注入 `__TAURI__`。两处判定现已同时兼容二者，避免桌面端被误判为 Web。
 
 ### 4.2 API 直连
 
@@ -201,16 +190,11 @@ const { readTextFile } = await import('@tauri-apps/plugin-fs')
 const content = await readTextFile(fullPath)
 ```
 
-```ts
-const { Command } = await import('@tauri-apps/plugin-shell')
-const command = Command.create('cmd', ['/c', 'type', fullPath])
-const output = await command.execute()
-```
-
 - 动态 `import()` 保证 Web 构建不会因缺少原生环境而崩溃。
-- 目录读取优先 `plugin-fs.readDir`。
-- 路径拼接使用 `/` 后统一 `replace(/\//g, '\\')`，是 Windows 专用实现。
-- Shell 兜底命令也是 Windows `cmd`，macOS/Linux 无法使用。
+- 目录读取使用 `plugin-fs.readDir`。
+- 读取前由 `resolveServerPath` 做路径规范化，拒绝绝对路径、`..` 穿越与 NUL 字符。
+- 路径统一使用 `/` 拼接，Windows 与 macOS/Linux 均可解析。
+- 已移除 shell 兜底；读取失败只返回错误文本，不再执行 `cmd` / `powershell`。
 
 ### 4.4 仅在桌面端开放的功能
 
@@ -228,10 +212,10 @@ const output = await command.execute()
 | 目录选择 | `plugin-dialog` | `GuidePage.AgentPreset` |
 | 文本文件读取 | `plugin-fs.readTextFile` | Agent |
 | 目录枚举 | `plugin-fs.readDir` | Agent 根目录/子目录 |
-| Shell 兜底 | `plugin-shell.Command` | Agent（Windows） |
-| 打开外部链接 | 前端 `<a target="_blank">` 或 `shell:allow-open` | 详情页、Header、设置页 |
+| 路径约束 | `resolveServerPath` | Agent 所有文件/目录工具 |
+| 打开外部链接 | 前端 `<a target="_blank">` | 详情页、Header、设置页 |
 
-未使用的能力：系统托盘、全局快捷键、自动更新、单实例、窗口状态持久化、深度链接、自定义协议、系统通知。
+未使用的能力：系统托盘、全局快捷键、自动更新、单实例、窗口状态持久化、深度链接、自定义协议、系统通知、Shell 命令执行。
 
 ## 6. 安全模型与风险
 
@@ -240,57 +224,48 @@ const output = await command.execute()
 ```mermaid
 flowchart LR
     Remote["外部内容<br/>Spigot HTML / 插件描述 / 文档 HTML / AI 输出"]
-    Render["WebView 渲染<br/>dangerouslySetInnerHTML / rehypeRaw"]
-    XSS["脚本执行"]
-    Cap["Tauri 能力<br/>fs 全部路径 / shell cmd+powershell / CSP null"]
-    Impact["读取任意文件<br/>窃取 API Key<br/>执行系统命令"]
+    Render["渲染前消毒<br/>DOMPurify / rehype-sanitize"]
+    XSS["脚本执行（已大幅降低）"]
+    Cap["Tauri 最小能力<br/>只读 fs / 无 shell / 严格 CSP"]
+    Impact["读取白名单目录文件<br/>无法执行命令或写文件"]
 
     Remote --> Render --> XSS --> Cap --> Impact
 ```
 
-### 6.2 风险清单
+### 6.2 已实施的安全措施
 
-| 风险 | 位置 | 影响 | 缓解 |
-| --- | --- | --- | --- |
-| Spigot HTML 未消毒 | `PluginDetailPage.tsx#L320-L324` | 恶意描述可执行脚本 | 使用已声明的 `dompurify` 消毒，或 sandbox iframe |
-| 文档原始 HTML | `DocsPage` 的 `rehypeRaw` | 内置文档可信，但未来若引入外部文档有风险 | 对外部内容禁用 `rehypeRaw` |
-| CSP 为空 | `tauri.conf.json` | 无浏览器层兜底 | 配置严格 CSP（`default-src 'self'` 等） |
-| FS 范围 `"**"` | `capabilities/default.json` | 可读写任意文件 | 收敛为 `$HOME` 下特定目录或用户选择目录 |
-| Shell 任意参数 | `allow-execute` / `spawn` | 命令注入风险 | 移除不必要的 shell 权限，或限定参数 |
-| API Key 明文 | `localStorage` | XSS 后可直接窃取 | 桌面端使用系统密钥链插件；Web 端接受风险但应隔离 |
-| 外部链接 | `target="_blank"` | 可能打开恶意页面 | `rel="noopener noreferrer"`（多数已添加） |
+| 项目 | 位置 | 措施 |
+| --- | --- | --- |
+| Spigot HTML | `PluginDetailPage` + `utils/sanitize.ts` | DOMPurify 消毒，移除脚本、表单、iframe、object、embed 等 |
+| Markdown 原始 HTML | `DocsPage`、`PluginDetailPage` | `rehype-raw` 后接 `rehype-sanitize`，脚本与事件属性被移除 |
+| CSP | `tauri.conf.json` | 生产/开发分别配置 CSP，限制脚本、样式、图片、连接与框架来源 |
+| FS 范围 | `capabilities/default.json` | 只读、仅 HOME/DOCUMENT/DESKTOP/DOWNLOAD，不再有 `"**"` |
+| Shell | Rust / Cargo / capabilities / 前端 | 完整移除 shell 插件、权限与回退代码 |
+| 目录穿越 | `GuidePage.resolveServerPath` | 拒绝绝对路径与越界 `..`，所有工具只能访问 serverPath 子目录 |
+| API Key | `services/secure-storage.ts` | AES-GCM 加密，密钥不可导出并存入 IndexedDB；非安全上下文仅内存 |
+| 外部链接 | 多处 | `target="_blank"` 配合 `rel="noopener noreferrer"` |
 
-### 6.3 建议的最小权限版本
+### 6.3 剩余风险
 
-```json
-{
-  "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:allow-open",
-    "fs:allow-read-text-file",
-    "fs:allow-read-dir",
-    {
-      "identifier": "fs:scope",
-      "allow": [{ "path": "$HOME/**" }]
-    }
-  ]
-}
-```
-
-并在运行时仅允许用户通过目录选择器确认的路径（可通过 scope 动态扩展或自定义 command 校验路径前缀）。同时移除 `shell` 插件或仅保留 `shell:allow-open`。
+| 风险 | 说明 | 建议 |
+| --- | --- | --- |
+| 符号链接逃逸 | 路径校验基于字符串，未 canonicalize | 在 Rust 侧使用 `std::fs::canonicalize` 并校验前缀 |
+| 白名单限制过严 | 用户服务器位于白名单外时无法读取 | 提供“授权该目录”的自定义 command，动态扩展 scope |
+| 加密密钥与数据同源 | IndexedDB 中的不可导出密钥仍可被同源脚本调用 | 桌面端可进一步接入系统密钥链 |
+| 提示词注入 | 日志/配置内容进入模型上下文 | 明确分隔外部内容、限制工具范围 |
+| Web 端无 CSP | GitHub Pages 无法设置响应头 | 使用支持自定义 Header 的托管平台，或添加 Vite 构建期 meta CSP |
 
 ## 7. 桌面端与 Web 端差异对照
 
 | 维度 | Web | Tauri |
 | --- | --- | --- |
 | 路由 | HashRouter，`#/...` | 同左 |
-| API 访问 | 开发代理 / 生产 CORS 代理 | 直连（取决于 `isTauri`） |
-| 本地文件 | 仅 File API 上传 | 任意目录读取（权限允许） |
+| API 访问 | 开发代理 / 生产 CORS 代理 | 直连（`isTauri` 已兼容 `__TAURI_INTERNALS__`） |
+| 本地文件 | 仅 File API 上传 | 只读、受 scope 与路径校验限制 |
 | Agent 模式 | 不可用 | 可用 |
-| 命令执行 | 无 | `cmd` / `powershell` |
+| 命令执行 | 无 | 无（已移除 shell） |
 | 构建产物 | `dist/` | 平台安装包 |
-| 安全边界 | 浏览器同源策略 | Tauri capabilities + WebView |
+| 安全边界 | 浏览器同源策略 + 内容消毒 | Tauri capabilities + CSP + WebView |
 | 更新方式 | 重新部署 | 重新安装（无自动更新） |
 
 ## 8. 桌面端构建
@@ -320,10 +295,10 @@ npx tauri build --target x86_64-pc-windows-msvc
 
 ## 9. 桌面端已知限制
 
-- `isTauri()` 与 `GuidePage` 判定不一致，Tauri 2 下可能误判。
-- 文件路径与 Shell 兜底仅支持 Windows。
+- `isTauri()` 已兼容 `__TAURI_INTERNALS__`，但 `withGlobalTauri` 仍为默认关闭。
+- FS scope 仅覆盖 HOME/DOCUMENT/DESKTOP/DOWNLOAD，白名单外的服务器目录无法读取。
+- 路径校验是字符串级，未在 Rust 侧 canonicalize，符号链接仍可能绕过目录前缀。
 - 没有自动更新、崩溃上报、日志持久化。
 - 没有窗口状态记忆。
-- FS 权限过宽，且前端只做只读操作，权限与用途不匹配。
-- 没有自定义 command 进行路径校验，模型可通过工具参数尝试读取任意路径（受 `serverPath` 前缀约束，但模型可构造 `..` 等相对路径）。
+- 没有自定义 command，无法动态授权用户选择的目录。
 - `readDir` 返回的 `entry.name` 在部分平台可能为 `undefined`，代码已过滤。

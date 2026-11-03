@@ -1,9 +1,9 @@
 import { useAppStore } from '@/store'
 import type { Platform } from '@/types'
 
-// 检测是否在 Tauri 环境
+// 检测是否在 Tauri 环境（Tauri 2 默认注入 __TAURI_INTERNALS__，开启 withGlobalTauri 后才有 __TAURI__）
 export function isTauri(): boolean {
-  return !!(window as any).__TAURI__
+  return !!(window as any).__TAURI__ || !!(window as any).__TAURI_INTERNALS__
 }
 
 // 获取 API 基础 URL

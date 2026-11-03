@@ -112,9 +112,22 @@ function saveToStorage(key, value) {
 }
 ```
 
-- 读取时机：Store 初始化时同步读取（模块加载阶段执行）。
-- 写入时机：每个 action 内部显式调用 `saveToStorage`，没有使用 Zustand `persist` 中间件。
-- 容错：读取时 `try/catch` 回退默认值；写入时 **没有 try/catch**，隐私模式或配额不足时可能抛错。
+- 读取时机：普通设置同步读取；**模型配置（含 API Key）通过 `loadModelsWithMigration` 异步读取并解密**。
+- 写入时机：每个 action 内部显式调用 `saveToStorage` 或 `saveModels`，没有使用 Zustand `persist` 中间件。
+- 容错：读取时 `try/catch` 回退默认值；写入时普通键 **没有 try/catch**，隐私模式或配额不足时可能抛错。
+- 模型持久化：`saveModels` 通过串行 Promise 链调用 `saveSecureModels`，避免并发写入乱序。
+
+### 5.1.1 API Key 加密存储
+
+模型配置不再以明文写入 `localStorage`。实现位于 [services/secure-storage.ts](../../src/services/secure-storage.ts)：
+
+1. 首次保存时生成 **AES-GCM 256 位**密钥，`extractable: false`，以 `CryptoKey` 形式存入 IndexedDB 数据库 `mc-plugin-market-secure` 的 `keys` 存储。
+2. 使用随机 12 字节 IV 加密整个 `models` 数组，密文以 `v1.<iv>.<cipher>` 格式写入 `mc-plugin-market-models-secure`。
+3. 启动时读取并解密；若发现旧版明文键 `mc-plugin-market-models`，会迁移到密文存储并立即删除明文键。
+4. Web Crypto / IndexedDB 不可用（非安全上下文）时，不加密、不持久化，API Key 仅保留在内存，并在设置页显示提示。
+5. 设置页“重置”会清除应用键、密文与 IndexedDB 密钥库，不再执行 `localStorage.clear()`。
+
+> 加密主要降低“静态存储中的明文暴露”风险；同源 XSS 仍可调用应用的解密逻辑读取 Key，因此仍需配合 HTML 消毒与 CSP。
 
 ### 5.2 状态字段与 Action
 
@@ -123,7 +136,7 @@ function saveToStorage(key, value) {
 | 主题 | `darkMode` | `boolean`，默认 `true` | `mc-plugin-market-darkMode` | `toggleDarkMode()`：翻转并同步 `<html class="dark">` |
 | 平台 | `enabledPlatforms` | `Platform[]`，默认三平台全开 | `mc-plugin-market-platforms` | `togglePlatform(p)`：增删平台并持久化 |
 | 收藏 | `favorites` | `Favorite[]`，默认 `[]` | `mc-plugin-market-favorites` | `addFavorite(plugin)`、`removeFavorite(id)`、`isFavorite(id)` |
-| AI 模型 | `models` | `AIModelConfig[]`，默认 5 个 GLM 模型 | `mc-plugin-market-models` | `updateModel`、`addModel`、`removeModel` |
+| AI 模型 | `models` | `AIModelConfig[]`，默认 5 个 GLM 模型 | `mc-plugin-market-models-secure`（AES-GCM 密文） | `updateModel`、`addModel`、`removeModel`；通过 `saveSecureModels` 持久化 |
 | AI 角色 | `roleAssignments` | `AIRoleAssignment[]`，默认 5 条 | `mc-plugin-market-roleAssignments` | `setRoleAssignment(role, modelId)`、`getModelForRole(role)` |
 | 代理 | `corsProxy` | `string`，默认 `https://api.allorigins.win/raw?url=` | `mc-plugin-market-corsProxy` | `setCorsProxy(url)` |
 | 插件缓存 | `pluginCache` | `Record<id, { data, timestamp }>`，默认 `{}` | `mc-plugin-market-pluginCache` | `cachePlugin(plugin)`、`getCachedPlugin(id)` |
@@ -131,7 +144,7 @@ function saveToStorage(key, value) {
 
 ### 5.3 默认 AI 模型与角色分配
 
-定义在 [store/index.ts#L20-L84](../../src/store/index.ts#L20-L84)。
+定义在 [store/index.ts#L35-L99](../../src/store/index.ts#L35-L99)。
 
 | 模型 id | 显示名 | `model` | `baseUrl` | `maxConcurrency` | `maxContext` |
 | --- | --- | --- | --- | --- | --- |
@@ -188,7 +201,7 @@ const { models, roleAssignments, updateModel } = useAppStore()
 
 | 类型 | 定义 | 当前使用情况 |
 | --- | --- | --- |
-| `AppSettings` | `models` + `roleAssignments` + `corsProxy` + `enabledPlatforms` | Store 中导入但**未使用**；实际字段分散在 Store |
+| `AppSettings` | `models` + `roleAssignments` + `corsProxy` + `enabledPlatforms` | **未被源码使用**；实际字段分散在 Store |
 | `SearchFilters`（types） | `platforms`、`categories`、`version`、`sortBy`、`minDownloads` | **未被源码使用** |
 | `SearchFilters`（SearchBar） | `category`、`serverType`、`version`、`platforms` | AI 搜索与 URL 参数使用；MainPage 未消费除 `q` 外的参数 |
 
@@ -202,9 +215,9 @@ const { models, roleAssignments, updateModel } = useAppStore()
 
 | 风险 | 说明 |
 | --- | --- |
-| API Key 明文存储 | `models[].apiKey` 直接写入 `localStorage`，任何同源脚本可读 |
+| 加密密钥与数据同源 | AES-GCM 密钥存于 IndexedDB；同源 XSS 仍可能调用解密逻辑，需依赖消毒与 CSP |
+| 非安全上下文不持久化 | `crypto.subtle` 不可用时 API Key 仅保留在内存，刷新后需重新填写 |
 | 缓存无上限 | `pluginCache` 只增不减，长期使用可能占用较多空间 |
 | 无跨标签页同步 | 除 AI 并发计数外，Store 变更不会广播到其他标签页 |
-| 重置逻辑粗暴 | 设置页“重置”执行 `localStorage.clear()`，会清空同域其他应用数据并刷新页面 |
-| 旧数据结构兼容 | 没有 schema 版本号或迁移逻辑，字段结构变化后旧数据可能不兼容 |
-| 写入异常 | `saveToStorage` 未捕获 `QuotaExceededError` |
+| 旧数据结构兼容 | 没有 schema 版本号或迁移逻辑（仅模型配置有明文→密文迁移），其他字段结构变化后旧数据可能不兼容 |
+| 普通键写入异常 | `saveToStorage` 未捕获 `QuotaExceededError` |

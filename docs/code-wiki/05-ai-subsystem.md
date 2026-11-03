@@ -274,7 +274,7 @@ export async function* translateDocumentStream(
 
 - `describeImage(imageUrl)`：`vision` 角色，prompt 要求详细描述 Minecraft 插件截图，`temperature: 0.3`。
 - `describeImages(imageUrls)`：名称暗示并发，实际 **顺序** 执行，每次 `acquire/release`；单图失败返回空串；prompt 限制 50 字。
-- 插件详情页只描述前 3 张截图（[PluginDetailPage.tsx#L130-L135](../../src/pages/PluginDetailPage.tsx#L130-L135)）。
+- 插件详情页只描述前 3 张截图（[PluginDetailPage.tsx#L140-L145](../../src/pages/PluginDetailPage.tsx#L140-L145)）。
 - 图片 URL 直接交给模型服务，要求该 URL 可被模型侧访问；Base64 data URL 在 Agent 模式中作为 `image_url.url` 传入。
 
 ## 5. Tool Calling 与 Agent
@@ -322,7 +322,7 @@ flowchart TD
 
 关键实现：
 
-- `MAX_TOOL_ITERATIONS = 10`（[GuidePage.tsx#L1499-L1503](../../src/pages/GuidePage.tsx#L1499-L1503)）。
+- `MAX_TOOL_ITERATIONS = 10`（[GuidePage.tsx#L1500-L1503](../../src/pages/GuidePage.tsx#L1500-L1503)）。
 - 工具结果消息格式：`{ role: 'tool', tool_call_id, content }`。
 - `read_server_file` 超过 10,000 字符时只保留最后 10,000 字符。
 - `read_docs` 可一次读多篇文档，`loadDoc` 遍历 `import.meta.glob` 模块匹配路径。
@@ -334,15 +334,18 @@ flowchart TD
 
 ### 5.3 工具执行与本地文件
 
-`readServerFile` / `listServerFiles`（[GuidePage.tsx#L959-L1019](../../src/pages/GuidePage.tsx#L959-L1019)）：
+`resolveServerPath` / `readServerFile` / `listServerFiles`（[GuidePage.tsx#L958-L1019](../../src/pages/GuidePage.tsx#L958-L1019)）：
 
 1. 非 Tauri 环境直接返回错误文案。
-2. 路径用 `$"{serverPath}/{filePath}".replace(/\//g, '\\')` 强制转换为 Windows 风格。
-3. 优先 `@tauri-apps/plugin-fs` 的 `readTextFile` / `readDir`。
-4. 失败时回退 `@tauri-apps/plugin-shell` 执行 `cmd /c type` / `cmd /c dir /b`。
+2. `resolveServerPath` 将模型提供的相对路径规范化，并校验其必须位于服务器根目录内：
+   - 拒绝绝对路径（Unix `/...`、Windows `C:\...`、UNC `\\server\share`）；
+   - 逐段处理 `.` 与 `..`，任何越过根目录的 `..` 都直接拒绝；
+   - 拒绝 NUL 字符。
+3. 只使用 `@tauri-apps/plugin-fs` 的 `readTextFile` / `readDir`，**不再回退到 shell 命令**。
+4. 路径使用 `/` 拼接，Windows 与 macOS/Linux 均可被 Rust `PathBuf` 解析。
 5. 所有错误都转成文本返回给模型，而不是抛出。
 
-这套逻辑实际只适用于 Windows；在 macOS/Linux 上 `\` 路径和 `cmd` 都不可用，`plugin-fs` 对反斜杠路径大概率失败。
+这使得 Agent 只能读取用户选定目录及其子目录内的文件；符号链接等 OS 级路径逃逸仍需后端规范化才能完全消除。
 
 ### 5.4 文档读取
 
@@ -367,13 +370,14 @@ flowchart TD
 
 ## 7. 安全与隐私
 
-| 风险 | 说明 | 建议 |
+| 风险 | 说明 | 当前措施 / 建议 |
 | --- | --- | --- |
-| API Key 明文 | 存于 `localStorage` 的 `mc-plugin-market-models`，XSS 可直接读取 | 引入系统密钥链（Tauri）或后端代理；至少加密存储 |
+| API Key 存储 | 模型配置含 API Key | 已改为 AES-GCM 加密存储：密钥不可导出并保存在 IndexedDB，`localStorage` 仅存密文；非安全上下文仅保留内存 |
 | 请求直连模型服务 | Key 会出现在浏览器网络面板；第三方服务可被 CORS 拦截 | 桌面端可接受；Web 生产建议自建代理 |
 | 提示词注入 | 插件描述、服务器日志、文档内容会进入 system/user 上下文 | 对文件/日志内容做明确分隔与指令隔离；限制工具范围 |
-| 本地文件读取 | Agent 可读取用户指定目录；capabilities 的 `fs:scope` 还包含 `**` | 收紧 scope，增加二次确认与只读白名单 |
-| 命令执行 | 兜底使用 `cmd` / `powershell`，参数可控性依赖实现 | 避免字符串拼接命令；优先只用 `plugin-fs` |
+| 本地文件读取 | Agent 读取用户选定目录 | `resolveServerPath` 阻止绝对路径与 `..` 穿越；Tauri `fs:scope` 限制在 HOME/DOCUMENT/DESKTOP/DOWNLOAD；仅保留只读权限 |
+| 命令执行 | 原 shell 兜底 | 已移除 `tauri-plugin-shell`、相关 capabilities 与前端回退代码 |
+| 外部 HTML | Spigot 描述与 Markdown 原始 HTML | Spigot 经 DOMPurify 消毒；Markdown 使用 `rehype-raw` + `rehype-sanitize`；Tauri 配置 CSP |
 
 ## 8. 扩展 AI 能力建议
 

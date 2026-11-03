@@ -276,8 +276,8 @@ npm test          # Vitest
 | AI 提示“未配置模型” | 角色未分配或模型被禁用 | 设置页“AI 角色分配”选择启用模型 |
 | AI 并发提示 | 同一模型被多标签页/多任务占用 | 等待、提高 `maxConcurrency` 或改用其他模型（需刷新页面） |
 | Tauri 窗口空白 | `devUrl` 端口与 Vite 不一致；`beforeDevCommand` 失败 | 检查 5173 端口占用与终端输出 |
-| Tauri 端 API 走代理/报 CORS | `isTauri()` 未识别 `__TAURI_INTERNALS__` | 修正环境检测（见 09） |
-| Agent 读不到文件 | 非 Windows 路径 / 权限不足 / `serverPath` 错误 | 使用 Windows，或在 `readServerFile` 中做平台路径处理 |
+| Tauri 端 API 走代理/报 CORS | 环境检测未识别 Tauri；或 CSP 阻止连接 | 确认 `isTauri()` 同时检测 `__TAURI_INTERNALS__`；检查 `tauri.conf.json` 的 `connect-src`（见 09） |
+| Agent 读不到文件 | 目录不在 FS scope 白名单 / `serverPath` 错误 / 路径越界 | 将服务器放在 HOME、DOCUMENTS、DESKTOP、DOWNLOAD 下；检查路径与安全提示 |
 | Linux 打包失败 | 缺少 WebKit/GTK 依赖 | 安装第 1 节列出的系统包 |
 | `npm run build` 类型错误 | TS strict 模式 | 按错误修复；`noUnusedLocals` / `noUnusedParameters` 为 false，未使用变量不会报错 |
 | CI 安装依赖与本地不一致 | CI 删除 `package-lock.json` | 本地也 `rm -f package-lock.json && npm install`，或修改 CI 使用 `npm ci` |

@@ -955,34 +955,46 @@ function SimpleServerPreset() {
 
 // ==================== Agent 模式 ====================
 
-// Tauri API 辅助函数 - 使用 fs 插件读取文件
+// 将模型提供的相对路径限制在服务器根目录内，阻止 ../ 目录穿越
+function resolveServerPath(serverPath: string, relativePath: string): string | null {
+  const root = serverPath.trim().replace(/\\/g, '/').replace(/\/+$/, '') || '/'
+  const normalized = relativePath.replace(/\\/g, '/').trim()
+
+  if (normalized.includes('\0')) return null
+  // 拒绝绝对路径（Unix / Windows / UNC）
+  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) return null
+
+  const segments: string[] = []
+  for (const segment of normalized.split('/')) {
+    if (!segment || segment === '.') continue
+    if (segment === '..') {
+      if (segments.length === 0) return null
+      segments.pop()
+      continue
+    }
+    segments.push(segment)
+  }
+
+  if (segments.length === 0) return root
+  return root === '/' ? `/${segments.join('/')}` : `${root}/${segments.join('/')}`
+}
+
+// Tauri API 辅助函数 - 仅通过 fs 插件进行只读访问
 async function readServerFile(serverPath: string, filePath: string): Promise<string> {
   if (!isTauri) {
     return '错误: 此功能仅在 Tauri 桌面端可用'
   }
-  
-  const fullPath = `${serverPath}/${filePath}`.replace(/\//g, '\\')
-  
+
+  const fullPath = resolveServerPath(serverPath, filePath)
+  if (!fullPath) {
+    return `拒绝访问: 路径 "${filePath}" 不在服务器根目录内`
+  }
+
   try {
-    // 优先使用 fs 插件
     const { readTextFile } = await import('@tauri-apps/plugin-fs')
-    const content = await readTextFile(fullPath)
-    return content
-  } catch (fsError) {
-    // 如果 fs 插件失败，尝试使用 shell 插件
-    try {
-      const { Command } = await import('@tauri-apps/plugin-shell')
-      const command = Command.create('cmd', ['/c', 'type', fullPath])
-      const output = await command.execute()
-      
-      if (output.code === 0) {
-        return output.stdout
-      } else {
-        return `无法读取文件: ${filePath} - ${output.stderr || '文件不存在或无法访问'}`
-      }
-    } catch (shellError) {
-      return `无法读取文件: ${filePath} - fs错误: ${fsError}, shell错误: ${shellError}`
-    }
+    return await readTextFile(fullPath)
+  } catch (error) {
+    return `无法读取文件: ${filePath} - ${String(error)}`
   }
 }
 
@@ -990,31 +1002,19 @@ async function listServerFiles(serverPath: string, dirPath: string): Promise<str
   if (!isTauri) {
     return ['错误: 此功能仅在 Tauri 桌面端可用']
   }
-  
-  const fullPath = (dirPath === '.' ? serverPath : `${serverPath}/${dirPath}`).replace(/\//g, '\\')
-  
+
+  const fullPath = resolveServerPath(serverPath, dirPath)
+  if (!fullPath) {
+    return [`拒绝访问: 目录 "${dirPath}" 不在服务器根目录内`]
+  }
+
   try {
-    // 优先使用 fs 插件
     const { readDir } = await import('@tauri-apps/plugin-fs')
     const entries = await readDir(fullPath)
     const files = entries.map(entry => entry.name).filter((name): name is string => name !== undefined)
     return files.length > 0 ? files : ['(空目录)']
-  } catch (fsError) {
-    // 如果 fs 插件失败，尝试使用 shell 插件
-    try {
-      const { Command } = await import('@tauri-apps/plugin-shell')
-      const command = Command.create('cmd', ['/c', 'dir', '/b', fullPath])
-      const output = await command.execute()
-      
-      if (output.code === 0) {
-        const files = output.stdout.split('\n').map(f => f.trim()).filter(f => f.length > 0)
-        return files.length > 0 ? files : ['(空目录)']
-      } else {
-        return [`无法列出目录: ${output.stderr || '目录不存在或无法访问'}`]
-      }
-    } catch (shellError) {
-      return [`无法列出目录: fs错误: ${fsError}, shell错误: ${shellError}`]
-    }
+  } catch (error) {
+    return [`无法列出目录: ${dirPath} - ${String(error)}`]
   }
 }
 

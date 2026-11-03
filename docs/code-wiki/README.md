@@ -24,7 +24,7 @@ MC 插件市场是一个 **Minecraft 插件聚合搜索 + 开服手册 + AI 助�
 | 状态 | Zustand 5 | 单 Store + `localStorage` 持久化 |
 | Markdown | react-markdown 9 + remark-gfm + rehype-raw | 代码高亮使用 react-syntax-highlighter |
 | 图标 | lucide-react | 少量自绘 SVG（平台图标、Minecraft 方块） |
-| 桌面 | Tauri 2（Rust） | Shell / Dialog / FS 插件 |
+| 桌面 | Tauri 2（Rust） | Dialog / FS（只读）插件 |
 | AI | OpenAI 兼容 Chat Completions | 智谱 GLM 默认，支持任意 OpenAI 兼容服务 |
 
 ## 3. 文档索引
@@ -68,8 +68,9 @@ npx tauri build      # 构建桌面安装包
 | 页面路由 | 9 条（`/`、`/browse`、`/docs`、`/guide`、`/plugin/:platform/:id`、`/plugin/:platform/:id/:subId`、`/favorites`、`/author/:platform/:authorId`、`/settings`） |
 | 插件平台 | Spigot / Hangar / Modrinth |
 | AI 角色 | decision / search / chat / translate / vision |
-| 持久化 | `localStorage`，键前缀 `mc-plugin-market-` |
-| 桌面权限 | `fs`（含 `**` 范围）、`shell`（cmd / powershell）、`dialog` |
+| 持久化 | `localStorage`（键前缀 `mc-plugin-market-`，模型配置为 AES-GCM 密文）+ IndexedDB 密钥库 |
+| 桌面权限 | 只读 `fs`（限定 HOME/DOCUMENT/DESKTOP/DOWNLOAD）+ `dialog`；已移除 shell |
+| 安全机制 | Spigot HTML 经 DOMPurify、Markdown 经 rehype-sanitize、API Key AES-GCM 加密存储、Tauri CSP |
 
 ## 6. 推荐阅读路径
 

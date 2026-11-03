@@ -104,7 +104,7 @@ flowchart TD
 
 ## 4. `PluginDetailPage`
 
-文件：[src/pages/PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx)（470 行）
+文件：[src/pages/PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx)（480 行）
 
 ### 4.1 路由参数语义
 
@@ -163,10 +163,10 @@ const fullId = subId ? `${id}/${subId}` : id
 
 | 平台 | 描述渲染 | 原因 |
 | --- | --- | --- |
-| spigot | `dangerouslySetInnerHTML` | Spiget 描述是 Base64 HTML |
-| hangar / modrinth | `ReactMarkdown` + `rehypeRaw` + `remarkGfm` | 描述是 Markdown/HTML 混合 |
+| spigot | `dangerouslySetInnerHTML` + DOMPurify `sanitizeHtml` | Spiget 描述是 Base64 HTML，需保留排版但移除脚本/表单/iframe |
+| hangar / modrinth | `ReactMarkdown` + `rehypeRaw` + `rehypeSanitize` + `remarkGfm` | 描述是 Markdown/HTML 混合；原始 HTML 经过 HAST 消毒 |
 
-Spigot 的 HTML **没有经过 DOMPurify 消毒**（依赖已声明但未使用），存在 XSS 风险，详见 11。
+`description` 与翻译结果分别用 `useMemo` 生成 `safeDescription`、`safeTranslatedDescription`，避免重复消毒。
 
 ### 4.7 UI 结构
 
@@ -179,11 +179,11 @@ Spigot 的 HTML **没有经过 DOMPurify 消毒**（依赖已声明但未使用�
 
 ### 4.8 依赖
 
-`useAppStore`（收藏与缓存）、三个平台适配器、`formatDownloads`、`getPlatformName`、`isAIAvailable`、`chatCompletionStream`、`translateDocumentStream`、`describeImages`、`PlatformIcon`。
+`useAppStore`（收藏与缓存）、三个平台适配器、`formatDownloads`、`getPlatformName`、`isAIAvailable`、`chatCompletionStream`、`translateDocumentStream`、`describeImages`、`PlatformIcon`、`sanitizeHtml`、`rehypeSanitize`。
 
 ## 5. `DocsPage`
 
-文件：[src/pages/DocsPage.tsx](../../src/pages/DocsPage.tsx)（564 行）
+文件：[src/pages/DocsPage.tsx](../../src/pages/DocsPage.tsx)（565 行）
 
 ### 5.1 职责
 
@@ -355,15 +355,16 @@ GuidePage
 
 | 函数 | 实现 |
 | --- | --- |
-| `readServerFile(serverPath, filePath)` | 路径转 `\`；`plugin-fs.readTextFile`；失败回退 `cmd /c type` |
-| `listServerFiles(serverPath, dirPath)` | 路径转 `\`；`plugin-fs.readDir`；失败回退 `cmd /c dir /b` |
+| `resolveServerPath(serverPath, relativePath)` | 规范化路径，拒绝绝对路径与越过根目录的 `..`，输出 `/` 分隔的完整路径 |
+| `readServerFile(serverPath, filePath)` | 先做路径校验；仅调用 `plugin-fs.readTextFile`，不再回退 shell |
+| `listServerFiles(serverPath, dirPath)` | 先做路径校验；仅调用 `plugin-fs.readDir`，不再回退 shell |
 | `selectDirectory()` | `plugin-dialog.open({ directory: true })`；Web 返回 `null` |
 
-这些函数只处理 Windows 路径；跨平台能力有限。
+路径统一使用 `/`，可在 Windows 与 macOS/Linux 上工作；所有读取错误转为模型可理解的文本。
 
 ## 7. `SettingsPage`
 
-文件：[src/pages/SettingsPage.tsx](../../src/pages/SettingsPage.tsx)（361 行）
+文件：[src/pages/SettingsPage.tsx](../../src/pages/SettingsPage.tsx)（368 行）
 
 ### 7.1 区块
 
@@ -380,15 +381,16 @@ GuidePage
 | --- | --- |
 | `toggleKeyVisibility(id)` | 切换 Key 明文/密文 |
 | `handleAddModel()` | 校验 `name` 与 `model`，生成 `custom-<timestamp>` id，补默认值后写入 Store |
-| `resetDefaults()` | `confirm` 后 `localStorage.clear()` 并 `window.location.reload()` |
+| `resetDefaults()` | `confirm` 后调用 `resetAppData()`：删除 `mc-plugin-market-*` 与 `ai-concurrency-*` 键、清除加密模型密文与 IndexedDB 密钥库，然后刷新 |
 
 ### 7.3 约束
 
 - 内置模型（id 不以 `custom-` 开头）不能删除，只能禁用或编辑。
 - `provider === 'zhipu'` 时“最大并发”输入框禁用（提示“固定”），但 Store 仍保存原值。
 - 修改 `maxConcurrency` 不会重建已有的 `ConcurrencyLimiter`，需刷新页面。
-- 重置会清空 **整个站点** 的 localStorage，不仅是本应用键。
-- API Key 以明文存储并可直接复制（显示按钮）。
+- API Key 通过 AES-GCM 加密后持久化；Web Crypto 不可用时只保留在内存，页面会显示提示。
+- 重置仅清理本应用数据，不再清空同域其他应用的 localStorage。
+- API Key 输入框支持显隐切换，但持久化内容为密文。
 
 ## 8. `FavoritesPage`
 
@@ -420,7 +422,7 @@ GuidePage
 | MainPage | `enabledPlatforms` | `searchAll`、三个热门函数、`translatePluginInfos`、`SearchBar`、`PlatformToggle`、`PluginCard` | 插件 API |
 | PluginDetailPage | `favorites`、`pluginCache` | 三个详情/描述函数、`chatCompletionStream`、`translateDocumentStream`、`describeImages`、`PlatformIcon` | 插件 API、LLM |
 | DocsPage | `darkMode` | `DocsSearch`、`AskAIPanel`、38 篇 raw 文档 | 无（AI 可选） |
-| GuidePage | `darkMode`、`getModelForRole` | `chatCompletion*`、`import.meta.glob` 文档 | LLM、Tauri FS/Dialog/Shell |
-| SettingsPage | `models`、`roleAssignments`、`corsProxy` | 纯表单 | 无 |
+| GuidePage | `darkMode`、`getModelForRole` | `chatCompletion*`、`import.meta.glob` 文档 | LLM、Tauri FS/Dialog |
+| SettingsPage | `models`、`roleAssignments`、`corsProxy` | 表单、`resetAppData`、`isSecureStorageSupported` | 无 |
 | FavoritesPage | `favorites` | `PluginCard` | 无 |
 | AuthorPage | — | 三个作者函数、`PluginCard` | 插件 API |

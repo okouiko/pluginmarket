@@ -8,7 +8,7 @@
 2. **内置知识库**：把开服教程打包进应用，支持离线阅读、全文检索和 AI 问答。
 3. **两套交付形态**：同一份前端代码既可部署为纯静态网站，也可由 Tauri 打包为桌面应用，并在桌面端扩展本地文件读取能力。
 
-架构因此呈现为 **纯前端 SPA + 桌面 Shell**：没有自建后端、没有数据库，所有状态在浏览器 `localStorage`，所有外部请求由前端直接发起（Web 生产环境通过 CORS 代理中转）。这带来了部署简单、零服务成本的优点，也带来密钥暴露、跨域、限流等约束。
+架构因此呈现为 **纯前端 SPA + 桌面外壳**：没有自建后端、没有数据库，所有状态在浏览器 `localStorage`（模型配置额外经 AES-GCM 加密），所有外部请求由前端直接发起（Web 生产环境通过 CORS 代理中转）。这带来了部署简单、零服务成本的优点，也带来密钥前端解密、跨域、限流等约束。
 
 ## 2. 三种运行形态
 
@@ -16,9 +16,9 @@
 | --- | --- | --- | --- | --- |
 | Web 开发 | `npm run dev` | Vite 代理 `/api/spiget`、`/api/hangar`、`/api/modrinth` | 无（浏览器 File API） | 浏览器直连模型服务 |
 | Web 生产 | `npm run build` + 静态托管 | `corsProxy + encodeURIComponent(真实 URL)`，默认 `https://api.allorigins.win/raw?url=` | 无 | 浏览器直连（受模型服务 CORS 策略影响） |
-| Tauri 桌面 | `npm run tauri dev` / `npx tauri build` | 直接请求 `https://api.spiget.org/v2` 等真实地址 | `plugin-fs` 读写、`plugin-dialog` 选择目录、`plugin-shell` 兜底 | WebView 内直连 |
+| Tauri 桌面 | `npm run tauri dev` / `npx tauri build` | 直接请求 `https://api.spiget.org/v2` 等真实地址 | `plugin-fs` 只读、`plugin-dialog` 选择目录 | WebView 内直连 |
 
-环境判定逻辑集中在 [api-base.ts](../../src/services/api-base.ts#L5-L38)：`isTauri()` 检测 `window.__TAURI__`，`import.meta.env.DEV` 区分开发/生产。`GuidePage` 另有更宽松的检测（`__TAURI__` 或 `__TAURI_INTERNALS__`），见 [GuidePage.tsx](../../src/pages/GuidePage.tsx#L10-L11)。
+环境判定逻辑集中在 [api-base.ts](../../src/services/api-base.ts#L4-L38)：`isTauri()` 同时检测 `window.__TAURI__` 与 `window.__TAURI_INTERNALS__`，`import.meta.env.DEV` 区分开发/生产。`GuidePage` 使用相同的双检测，见 [GuidePage.tsx](../../src/pages/GuidePage.tsx#L10-L11)。
 
 ## 3. 分层架构
 
@@ -26,7 +26,7 @@
 flowchart TB
     subgraph Shell["运行外壳"]
         Browser["浏览器 / WebView"]
-        Tauri["Tauri 2 Rust Core<br/>shell / dialog / fs"]
+        Tauri["Tauri 2 Rust Core<br/>dialog / fs（只读）"]
     end
 
     subgraph UI["表现层"]
@@ -111,7 +111,7 @@ flowchart TB
 ### 3.4 外壳层
 
 - Web 端只有浏览器环境，无额外能力。
-- Tauri 端由 [src-tauri](../../src-tauri) 提供 Rust 入口与插件能力；前端通过动态 `import()` 调用 `@tauri-apps/plugin-fs`、`plugin-shell`、`plugin-dialog`，因此 Web 构建不会因缺少 Tauri 环境而失败。
+- Tauri 端由 [src-tauri](../../src-tauri) 提供 Rust 入口与插件能力；前端通过动态 `import()` 调用 `@tauri-apps/plugin-fs`、`plugin-dialog`，因此 Web 构建不会因缺少 Tauri 环境而失败。
 
 ## 4. 核心数据流
 
@@ -165,7 +165,7 @@ sequenceDiagram
 | hangar | `getHangarProject(owner, slug)` | `getHangarProjectDescription(owner, slug)` | Markdown / HTML（pages 端点，多路径兜底） |
 | modrinth | `getModrinthProject(idOrSlug)` | `getModrinthProjectDescription(idOrSlug)` | Markdown |
 
-详情页用 `getCachedPlugin` 尝试命中 1 小时缓存，加载成功后 `cachePlugin` 写回。渲染时 Spigot 走 `dangerouslySetInnerHTML`，其余平台走 `ReactMarkdown`，见 [PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx#L316-L350)。
+详情页用 `getCachedPlugin` 尝试命中 1 小时缓存，加载成功后 `cachePlugin` 写回。渲染时 Spigot 走 `dangerouslySetInnerHTML`（经 DOMPurify 消毒），其余平台走 `ReactMarkdown` + `rehype-sanitize`，见 [PluginDetailPage.tsx](../../src/pages/PluginDetailPage.tsx#L326-L360)。
 
 ### 4.3 AI 对话
 
@@ -225,7 +225,10 @@ pluginmarket/
 │   │   ├── hangar.ts
 │   │   ├── modrinth.ts
 │   │   ├── search.ts           # 聚合搜索与格式化工具
-│   │   └── ai.ts               # AI 调用、限流、翻译、工具类型
+│   │   ├── ai.ts               # AI 调用、限流、翻译、工具类型
+│   │   └── secure-storage.ts   # API Key AES-GCM 加密存储
+│   ├── utils/
+│   │   └── sanitize.ts         # DOMPurify HTML 消毒
 │   ├── pages/
 │   │   ├── MainPage.tsx        # 首页 + 浏览页
 │   │   ├── PluginDetailPage.tsx
@@ -261,20 +264,23 @@ pluginmarket/
 
 | 机制 | 实现位置 | 作用 |
 | --- | --- | --- |
-| 环境自适应 | `api-base.ts`、`GuidePage.tsx` | 开发 / 生产 / Tauri 三套 API 路由 |
+| 环境自适应 | `api-base.ts`、`GuidePage.tsx` | 开发 / 生产 / Tauri 三套 API 路由，兼容 `__TAURI__` 与 `__TAURI_INTERNALS__` |
 | CORS 兜底 | `api-base.ts#L41-L72` | 生产 Web 端用用户可配置代理 |
 | 数据归一化 | 三个平台适配器 | 上游差异被隔离在服务层 |
-| 本地持久化 | `store/index.ts#L6-L17` | 主题、收藏、AI 配置、缓存、历史 |
+| 本地持久化 | `store/index.ts#L6-L32` | 主题、收藏、AI 配置、缓存、历史 |
+| API Key 加密 | `services/secure-storage.ts` | AES-GCM 加密，密钥不可导出并存入 IndexedDB；旧明文自动迁移 |
+| HTML 消毒 | `utils/sanitize.ts`、`rehype-sanitize` | Spigot HTML 与 Markdown 原始 HTML 在渲染前消毒 |
 | 缓存降级 | `getCachedPlugin` | 缓存过期返回 `undefined`，调用方回源 |
 | 错误隔离 | `searchAll` 的 `catch(() => [])` | 单平台失败不拖垮聚合结果 |
 | 并发协调 | `ConcurrencyLimiter` | 同一模型跨标签页共享并发额度 |
 | 静态内容打包 | `?raw`、`import.meta.glob` | 文档随构建产物离线可用 |
 | 渐进式桌面能力 | 动态 `import()` Tauri 插件 | Web 端不引入、桌面端按需启用 |
+| 桌面安全边界 | capabilities + CSP + 路径校验 | 只读文件、无 shell、限制目录穿越 |
 
 ## 7. 关键架构决策与权衡
 
 1. **HashRouter + `base: './'`**：适配 GitHub Pages 子路径与 Tauri 本地 `file://`/自定义协议，避免 history 路由回退 404；代价是 URL 带 `#`，不利于 SEO。
-2. **无后端**：部署零成本、隐私数据留在本地；代价是 API Key 暴露在前端、跨域依赖第三方代理、无法隐藏业务逻辑。
+2. **无后端**：部署零成本、隐私数据留在本地；代价是 API Key 虽加密存储但仍在前端解密、跨域依赖第三方代理、无法隐藏业务逻辑。
 3. **适配器模式统一数据**：`PluginBase` 是 UI 的唯一输入契约，新增平台只需增加适配器与少量映射；代价是部分字段（评分、作者、分类）在不同平台语义不一致。
 4. **AI 角色化配置**：允许“便宜模型做翻译、强模型做决策”，并支持 OpenAI 兼容服务；代价是配置复杂度和多模型并发协调。
 5. **文档静态打包**：离线可用、搜索快；代价是包体随文档增长，新增文档需改多处索引（见 [08](08-docs-content.md)）。
@@ -284,7 +290,8 @@ pluginmarket/
 
 - 所有平台请求无超时/取消实现，弱网下可能长时间等待。
 - 生产 Web 版依赖 `api.allorigins.win` 等第三方 CORS 代理的可用性与速率限制，用户可在设置页替换。
-- Tauri capabilities 授予了宽泛的文件与 shell 权限，详见 [09](09-tauri-desktop.md#6-安全模型与风险)。
+- Tauri 已收紧为只读 FS + 限定 scope，并移除 shell 权限；但白名单外的服务器目录无法读取，详见 [09](09-tauri-desktop.md#6-安全模型与风险)。
+- Web 端（GitHub Pages）无法设置响应头 CSP，安全主要依赖渲染前消毒；Tauri 端已配置 CSP。
 - 页面直接调用平台适配器的现象存在（`MainPage`、`PluginDetailPage`、`AuthorPage`），聚合入口未被所有场景复用。
 - 项目没有自动化测试与 ESLint 配置，`npm run build` 的 `tsc -b` 是主要静态校验。
 

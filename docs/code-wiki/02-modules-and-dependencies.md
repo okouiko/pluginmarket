@@ -13,6 +13,8 @@
 | Modrinth 适配器 | `src/services/modrinth.ts` | Modrinth 搜索（facets 限定插件）、详情、描述、热门、团队成员、用户项目、分类 | `searchModrinth`、`getModrinthProject` 等 7 个函数 | `api-base`、类型层 | `search`、`MainPage`、`PluginDetailPage`、`AuthorPage` |
 | 聚合搜索 | `src/services/search.ts` | 按启用平台并发搜索、错误隔离、下载量排序、展示格式化 | `searchAll`、`formatDownloads`、`getPlatformName`、`getPlatformColor` | Store、三个适配器 | `MainPage`、`SearchBar`、`PluginCard`、`PluginDetailPage` |
 | AI 服务 | `src/services/ai.ts` | 角色→模型解析、并发限流、普通/流式/工具调用、批量翻译、文档翻译、图片描述 | `ConcurrencyLimitError`、`chatCompletion`、`chatCompletionStream`、`chatCompletionWithTools`、`translateDocumentStream` 等 | Store、类型层、`BroadcastChannel`、`localStorage` | `SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginDetailPage`、`GuidePage`、`MainPage` |
+| 安全存储 | `src/services/secure-storage.ts` | AES-GCM 加密模型配置，密钥存 IndexedDB，明文旧数据迁移，重置清理 | `saveSecureModels`、`loadModelsWithMigration`、`clearSecureModels`、`isSecureStorageSupported` | Web Crypto、IndexedDB、localStorage | `store/index.ts`、`SettingsPage` |
+| HTML 消毒 | `src/utils/sanitize.ts` | 使用 DOMPurify 消毒 Spigot 等外部 HTML | `sanitizeHtml` | DOMPurify | `PluginDetailPage` |
 | 页面层 | `src/pages/*.tsx` | 路由级业务编排、页面状态、数据加载、AI 功能整合 | 7 个默认导出页面组件 | React、Router、Store、组件、服务层、文档资产 | `App` |
 | 组件层 | `src/components/*.tsx` | 可复用交互与展示；部分组件承载 Agent/检索/对话逻辑 | `Header`、`SearchBar`、`DocsSearch`、`AskAIPanel`、`PluginCard`、`PlatformToggle`、`PlatformIcon` | React、Router、Store、服务层、AI、Markdown | 页面 |
 | 文档资产 | `src/assets/docs/**/*.md` | 开服知识库原文（72 篇） | `?raw` 字符串、`import.meta.glob` 模块 | 无 | `DocsPage`、`DocsSearch`、`AskAIPanel`、`GuidePage`、`SearchBar` |
@@ -35,6 +37,8 @@ flowchart LR
     Modrinth["services/modrinth.ts"]
     Search["services/search.ts"]
     AI["services/ai.ts"]
+    Secure["services/secure-storage.ts"]
+    Sanitize["utils/sanitize.ts"]
 
     Icons["components/PlatformIcons"]
     Card["components/PluginCard"]
@@ -65,6 +69,7 @@ flowchart LR
     Modrinth --> Search
     Store --> Search
     Store --> AI
+    Store --> Secure
 
     Types --> Card
     Store --> Card
@@ -96,11 +101,13 @@ flowchart LR
     Search --> Detail
     Icons --> Detail
     Store --> Detail
+    Sanitize --> Detail
     DocsSearch --> Docs
     AskAI --> Docs
     AI --> Guide
     Store --> Guide
     Store --> Settings
+    Secure --> Settings
     Card --> Fav
     Store --> Fav
     Spiget --> Author
@@ -131,7 +138,7 @@ flowchart TB
     HangarAPI["Hangar API"]
     ModrinthAPI["Modrinth API"]
     LLM["智谱 / OpenAI 兼容 API"]
-    TauriFS["Tauri FS / Dialog / Shell"]
+    TauriFS["Tauri FS（只读）/ Dialog"]
     Local["服务器本地目录"]
 
     Frontend -->|开发/生产| Proxy
@@ -196,13 +203,13 @@ types  ←  store  ←  services  ←  components  ←  pages  ←  App  ←  ma
 | `react-markdown` | ^9.0.0 | Markdown 渲染 | 详情页、文档页、AI 面板、Guide |
 | `remark-gfm` | ^4.0.1 | 表格、删除线等 GFM 语法 | 同上 |
 | `rehype-raw` | ^7.0.0 | 允许 Markdown 中的原始 HTML | 详情页、文档页 |
+| `rehype-sanitize` | ^6.0.0 | 对原始 HTML 做 HAST 消毒 | 详情页、文档页 |
 | `react-syntax-highlighter` | ^16.1.0 | 代码块高亮 | `DocsPage`、`AskAIPanel`、`GuidePage` |
 | `@types/react-syntax-highlighter` | ^15.5.13 | 代码高亮类型声明（声明在 dependencies） | 编译期 |
 | `lucide-react` | ^0.469.0 | 图标库 | 全部 UI |
 | `@tauri-apps/plugin-dialog` | ^2 | 目录选择 | `GuidePage`（动态导入） |
 | `@tauri-apps/plugin-fs` | ^2 | 读取文件 / 列目录 | `GuidePage`（动态导入） |
-| `@tauri-apps/plugin-shell` | ^2.3.5 | `cmd` 兜底读取 / 目录枚举 | `GuidePage`（动态导入） |
-| `dompurify` | ^3.2.0 | 声明用于 HTML 消毒 | **当前未被任何源码导入**（见 11） |
+| `dompurify` | ^3.2.0 | HTML 消毒 | `utils/sanitize.ts` |
 
 ### 4.2 npm 开发依赖
 
@@ -221,7 +228,6 @@ types  ←  store  ←  services  ←  components  ←  pages  ←  App  ←  ma
 | crate | 版本 | 用途 |
 | --- | --- | --- |
 | `tauri` | 2 | 桌面框架 |
-| `tauri-plugin-shell` | 2 | 执行系统命令（配置中允许 `cmd`/`powershell`） |
 | `tauri-plugin-dialog` | 2 | 原生目录选择对话框 |
 | `tauri-plugin-fs` | 2 | 文件读取与目录枚举 |
 | `serde` / `serde_json` | 1 | 声明依赖，当前 Rust 业务代码未直接使用 |

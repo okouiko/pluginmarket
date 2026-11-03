@@ -106,33 +106,38 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 
 严重度定义：**P0** 安全/数据风险；**P1** 功能正确性/稳定性；**P2** 可维护性/体验。
 
-### 3.1 P0
+### 3.1 已修复的 P0 安全项
 
-| # | 问题 | 位置 | 影响 | 建议 |
-| --- | --- | --- | --- | --- |
-| 1 | Spigot 描述直接 `dangerouslySetInnerHTML`，无消毒 | `PluginDetailPage.tsx#L320-L324` | 恶意 HTML 可执行脚本；桌面端可进一步读文件/执行命令 | 使用已声明的 `dompurify` 消毒，或使用 sandbox iframe |
-| 2 | API Key 明文存 `localStorage` | `store/index.ts#L160-L190`，`localStorage` 键 `mc-plugin-market-models` | 任何同源脚本/XSS 可读取全部 Key | 桌面端用系统密钥链；Web 端至少加密/隔离，或改后端代理 |
-| 3 | Tauri 权限过宽 | `src-tauri/capabilities/default.json` | `fs:scope` 含 `**`、shell 允许任意参数 `cmd/powershell`、CSP 为 null | 收紧 scope、移除不必要的 shell 权限、配置 CSP |
-| 4 | 文档 `rehypeRaw` + 无 CSP | `DocsPage.tsx`、`PluginDetailPage.tsx` | 内置文档可信，但外部内容一旦进入即可执行 HTML/脚本 | 对外部来源禁用 raw HTML；统一消毒 |
-| 5 | Agent 可构造 `..` 路径 | `GuidePage.tsx#L959-L1019` | 工具参数可逃逸 `serverPath` 前缀 | 规范路径（`path.resolve` + 前缀校验），限制只读 |
+| # | 原问题 | 修复方式 | 关键位置 |
+| --- | --- | --- | --- |
+| 1 | Spigot 描述直接 `dangerouslySetInnerHTML` | 渲染前经 DOMPurify `sanitizeHtml`；Markdown 原始 HTML 统一接 `rehype-sanitize` | `PluginDetailPage.tsx`、`utils/sanitize.ts`、`DocsPage.tsx` |
+| 2 | API Key 明文存 `localStorage` | AES-GCM 加密整个模型配置；密钥不可导出并存入 IndexedDB；旧明文自动迁移后删除；不支持 Web Crypto 时仅内存保留 | `services/secure-storage.ts`、`store/index.ts` |
+| 3 | Tauri 权限过宽、CSP 为空 | capabilities 改为只读 FS + 限定 scope；移除全部 shell 权限与插件；配置生产/开发 CSP | `capabilities/default.json`、`tauri.conf.json`、`Cargo.toml`、`lib.rs` |
+| 4 | 文档 `rehypeRaw` 无消毒 | `rehype-raw` 后接 `rehype-sanitize`；Tauri 侧增加 CSP 作为纵深防御 | `DocsPage.tsx`、`PluginDetailPage.tsx`、`tauri.conf.json` |
+| 5 | Agent 可构造 `..` 路径 | 新增 `resolveServerPath`：拒绝绝对路径、UNC、NUL 与越界 `..`；仅允许 serverPath 子目录；移除 shell 回退 | `GuidePage.tsx` |
 
-### 3.2 P1
+同时修复的相关问题：
+
+| 原 # | 问题 | 修复 |
+| --- | --- | --- |
+| 16 | `isTauri()` 仅检测 `__TAURI__` | 改为同时检测 `__TAURI_INTERNALS__` |
+| 17 | Agent 路径强制 Windows 风格 | 统一使用 `/` 并支持跨平台；移除 `cmd` 兜底 |
+| 18 | 设置“重置”执行 `localStorage.clear()` | 改为 `resetAppData()`，仅清理本应用键、密文与 IndexedDB 密钥库 |
+
+### 3.2 P1（剩余）
 
 | # | 问题 | 位置 | 影响 |
 | --- | --- | --- | --- |
 | 6 | MainPage 分类/服务端/排序筛选未接入请求 | `MainPage.tsx#L80-L89`、`#L206-L209` | 用户点击筛选无效，只有最低下载量生效 |
 | 7 | Modrinth 搜索分页二次乘法 | `search.ts#L20-L22` + `modrinth.ts#L44` | “加载更多”跳过大量结果 |
 | 8 | Hangar/Modrinth 热门“换一批”偏移二次乘法 | `MainPage.tsx#L112-L115` | 随机页实际跳到 100、200… |
-| 9 | Hangar 详情缓存键不匹配 | `PluginDetailPage.tsx#L79` vs `store/index.ts#L199` | Hangar 永远不命中缓存，重复请求 |
+| 9 | Hangar 详情缓存键不匹配 | `PluginDetailPage.tsx#L89` vs `store/index.ts#L214` | Hangar 永远不命中缓存，重复请求 |
 | 10 | 文档树仅 38/72，索引三套手写 | `DocsPage.tsx`、`DocsSearch.tsx`、`GuidePage.tsx` | 33 篇配置文档无法从侧边栏打开、普通搜索不可见；索引易漂移 |
 | 11 | `searchAll` 吞掉所有平台错误 | `search.ts#L14-L27` | 用户只看到结果变少，无失败提示 |
 | 12 | `apiFetch` 无超时/取消 | `api-base.ts#L41-L72` | 弱网下长时间 loading，无法中止 |
 | 13 | `ConcurrencyLimiter` 并发上限固化 | `ai.ts#L129-L136` | 设置页修改并发后需刷新才生效 |
 | 14 | `ConcurrencyLimiter` 跨标签页竞态 | `ai.ts#L62-L101` | 多标签同时请求可能短暂超限 |
 | 15 | `BroadcastChannel` 无兼容降级 | `ai.ts#L21-L31` | 不支持的 WebView 直接抛错 |
-| 16 | `isTauri()` 仅检测 `__TAURI__` | `api-base.ts#L5-L7` | Tauri 2 可能误判为 Web，API 走代理 |
-| 17 | Agent 文件路径强制 Windows 风格 | `GuidePage.tsx#L964`、`#L994` | macOS/Linux 上读取与列目录失败 |
-| 18 | 设置“重置”执行 `localStorage.clear()` | `SettingsPage.tsx#L51-L56` | 清空同域所有应用数据 |
 | 19 | CI 删除 `package-lock.json` | `deploy.yml#L31-L33`、`release.yml#L53-L57` | 构建不可复现，依赖可能漂移 |
 | 20 | 无测试、无 lint | 全仓库 | 回归风险依赖人工与 `tsc` |
 | 21 | Modrinth 详情作者为空 | `modrinth.ts#L30` | 作者链接空白、作者页空参数 |
@@ -142,7 +147,6 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 
 | # | 问题 | 位置 | 影响 |
 | --- | --- | --- | --- |
-| 23 | 未使用的 `dompurify` 依赖 | `package.json` | 增加安装体积，且安全能力未启用 |
 | 24 | 未使用的类型 `AIStreamChunk`、`AppSettings`、`types/SearchFilters` | `types/index.ts` | 类型定义与实现漂移 |
 | 25 | 未使用的导出：`formatRating`、`getPlatformColor`、`getSpigetCategories`、`getSpigetCategoryResources`、`getSpigetNewResources`、`getSpigetAuthor`、`getModrinthTeamMembers`、`getModrinthCategories`、`translateLines`、`translateDocument`、`describeImage`、`PlaceholderPreset` | 各服务/页面 | 死代码增加维护成本 |
 | 26 | 重复实现：三份锚点生成、多套文档索引、两套翻译流程 | `DocsPage`/`AskAIPanel`/`DocsSearch`；`ai.ts`/`GuidePage` | 行为不一致风险 |
@@ -165,22 +169,29 @@ types → adapter → api-base → vite proxy → searchAll → MainPage 热门
 
 | 资产/能力 | 当前保护 | 风险等级 |
 | --- | --- | --- |
-| AI API Key | 仅 `localStorage` | 高 |
-| 插件/文档 HTML | 无消毒（Spigot 直接注入；Markdown 启用 raw） | 高 |
-| 本地文件系统 | Tauri `fs:scope` 含 `**` | 高 |
-| 系统命令 | Tauri shell 任意参数 | 高 |
-| CSP | 未配置 | 高 |
+| AI API Key | AES-GCM 加密存储，密钥不可导出并置于 IndexedDB；旧明文自动迁移；不支持 Web Crypto 时仅内存 | 低–中（同源 XSS 仍可调用解密逻辑） |
+| 插件/文档 HTML | Spigot 经 DOMPurify；Markdown 经 `rehype-sanitize` | 低 |
+| 本地文件系统 | Tauri 只读 FS + HOME/DOCUMENT/DESKTOP/DOWNLOAD scope + 路径校验 | 中（符号链接未 canonicalize） |
+| 系统命令 | 已移除 shell 插件、权限与前端回退 | 已消除 |
+| CSP | Tauri 生产/开发 CSP 已配置 | 中（Web 端 GitHub Pages 无法设置响应头） |
 | 外部链接 | 多数 `rel="noopener noreferrer"` | 低 |
 | 网络传输 | HTTPS（默认 API 与模型服务） | 低 |
 | 第三方 CORS 代理 | 默认公共代理，可替换 | 中 |
 
-**最小修复集**：
+**已实施的 P0 修复**：
 
-1. 在 `PluginDetailPage` 用 DOMPurify 消毒 Spigot HTML；对非内置 Markdown 禁用 `rehypeRaw`。
-2. 收紧 capabilities：只保留 `fs:allow-read-text-file`、`fs:allow-read-dir` + 用户确认目录；移除 `shell` 或限定命令。
-3. 配置 CSP，至少 `default-src 'self'; connect-src 'self' https:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'`。
-4. 桌面端用系统密钥链（`tauri-plugin-stronghold` / keyring）保存 API Key。
-5. Agent 路径规范化与 `serverPath` 前缀校验。
+1. Spigot HTML 经 DOMPurify；Markdown 原始 HTML 经 `rehype-sanitize`。
+2. API Key 改为 AES-GCM 加密存储，IndexedDB 保存不可导出密钥，旧明文迁移后删除。
+3. Tauri capabilities 收敛为只读 FS；完整移除 shell 插件与权限；配置 CSP。
+4. Agent 增加 `resolveServerPath` 路径校验，阻止 `..` 与绝对路径，仅访问 serverPath 子目录。
+5. `isTauri()` 双检测、跨平台路径、应用级重置一并修复。
+
+**剩余加固建议**：
+
+- 在 Rust 侧 canonicalize 路径并校验前缀，防止符号链接逃逸。
+- 为桌面端接入系统密钥链（keyring / stronghold）。
+- 为 Web 托管平台配置 CSP 响应头，或增加构建期 meta CSP。
+- 增加 ESLint、Vitest、Playwright 与 `npm ci` 质量门禁。
 
 ## 5. 变更检查清单
 
@@ -208,7 +219,7 @@ flowchart LR
 
 | 阶段 | 目标 | 关键动作 |
 | --- | --- | --- |
-| 1 | 消除高危面 | DOMPurify、CSP、Tauri 最小权限、Key 安全存储、路径校验 |
+| 1 | 消除高危面（已完成） | DOMPurify、CSP、Tauri 最小权限、Key 加密存储、路径校验 |
 | 2 | 修复核心功能 | Modrinth 分页、热门偏移、筛选接入、Hangar 缓存键、请求超时与错误 UI |
 | 3 | 降低维护成本 | 文档索引自动生成、拆分 SearchBar/DocsSearch/GuidePage、统一 AI 错误组件、清理未使用代码 |
 | 4 | 建立质量门禁 | ESLint + Prettier、Vitest、Playwright、`npm ci`、依赖审计、PR 检查清单 |

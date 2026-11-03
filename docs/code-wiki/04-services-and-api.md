@@ -10,11 +10,11 @@
 
 ```ts
 export function isTauri(): boolean {
-  return !!(window as any).__TAURI__
+  return !!(window as any).__TAURI__ || !!(window as any).__TAURI_INTERNALS__
 }
 ```
 
-只检测 `__TAURI__`。`GuidePage` 额外检测 `__TAURI_INTERNALS__`，两者并不完全一致。
+Tauri 2 默认注入 `__TAURI_INTERNALS__`，`withGlobalTauri` 配置才会注入 `__TAURI__`；两者都检测可避免桌面端被误判为 Web。`GuidePage` 使用相同的双检测逻辑。
 
 ### 1.2 Base URL 解析 `getBaseUrl`
 
