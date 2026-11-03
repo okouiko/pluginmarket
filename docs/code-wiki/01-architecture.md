@@ -262,7 +262,7 @@ pluginmarket/
 │   │   ├── PlatformToggle.tsx
 │   │   └── PlatformIcons.tsx
 │   └── assets/
-│       ├── Minecraft-AE.ttf
+│       ├── Minecraft-AE.ttf    # 历史字体资产，已不再引用/打包
 │       └── docs/               # 72 篇开服手册 Markdown
 ├── src-tauri/
 │   ├── Cargo.toml

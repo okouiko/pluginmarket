@@ -22,7 +22,7 @@
 | 组件层 | `src/components/*.tsx` | 可复用交互与展示；部分组件承载 Agent/检索/对话逻辑 | `Header`、`SearchBar`、`SearchAgentPanel`、`DocsSearch`、`DocsSearchResults`、`AskAIPanel`、`FilterPanel`、`PluginCard`、`PlatformToggle`、`PlatformIcon` | React、Router、Store、服务层、AI、Markdown | 页面 |
 | 文档资产 | `src/assets/docs/**/*.md` | 开服知识库原文（72 篇） | 被 `src/data/docs.ts` eager glob 成字符串 | 无 | `src/data/docs.ts` |
 | 质量工具 | `eslint.config.js`、`*.test.ts` | 静态检查与单元测试 | ESLint flat config、Vitest 3 个测试文件 | ESLint、Vitest | `npm run lint` / `npm run test` |
-| 字体资产 | `src/assets/Minecraft-AE.ttf` | Minecraft 风格字体 | `@font-face` | 无 | `index.css` |
+| 字体资产 | `src/assets/Minecraft-AE.ttf` | 历史 Minecraft 字体，已停止使用 | 无（`@font-face` 已移除） | 无 | 无 |
 | 桌面外壳 | `src-tauri/src/lib.rs`、`main.rs` | 初始化 Tauri Builder、注册插件、启动应用 | `run()` | tauri、dialog/fs 两个插件 | 桌面可执行文件 |
 | 桌面配置 | `tauri.conf.json`、`capabilities/default.json` | 窗口、构建命令、bundle、权限范围 | — | — | Tauri 构建器 |
 | CI/CD | `.github/workflows/*.yml` | GitHub Pages 部署、多平台 Release | — | Node、Rust、Tauri CLI | GitHub Actions |

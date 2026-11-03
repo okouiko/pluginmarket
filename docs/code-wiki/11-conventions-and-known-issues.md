@@ -40,7 +40,7 @@
   - `mc-green` / `mc-green-dark` / `mc-gold` / `mc-bg` / `mc-border` / `mc-card`；
   - 平台色 `spigot`（橙）、`hangar`（蓝）、`modrinth`（绿）；
   - 暗色 `dark-bg` / `dark-card` / `dark-border` / `dark-text` / `dark-text-secondary`。
-- 标题使用 `font-minecraft`；文档正文用 `.docs-content` 覆盖为系统字体。
+- 标题保留 `font-minecraft` 类名，但已映射为系统字体栈（不再加载 Minecraft-AE 字体）；文档正文同样使用系统字体。
 - 动画类：`animate-fade-in`、`stagger-item`、`btn-press`、`card-hover`、`collapse-arrow`、`collapsible-content`、`loading-pulse`、`dropdown-animate`、`logo-animate`、`typing-dot`。
 
 ### 1.5 错误处理约定
